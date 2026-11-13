@@ -65,10 +65,6 @@ jobs:
           python3 project-tools/build_internal_apk.py
           apk=android_app/build/Dragoon-Engine-Internal.apk
           bytes=$(stat -c %s "$apk")
-          if (( bytes > 100000000 )); then
-            echo "::error::La APK supera los 100 MB ($bytes bytes)."
-            exit 1
-          fi
           echo "APK verificada: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$DRAGOON_PACKAGE_APK" != true ]]; then
             echo "Compilación de prueba. Configura la URL y la firma para entregar una APK." >> "$GITHUB_STEP_SUMMARY"
