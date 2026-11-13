@@ -62,7 +62,7 @@ public class TurnOrderMod {
   }
 
   public boolean isVisible() {
-    return this.visible;
+    return legend.core.renderer.RemasterMode.isEnabled() && this.visible;
   }
 
   public float getCurrentWidth() {
@@ -154,7 +154,7 @@ public class TurnOrderMod {
 
   @EventListener
   public void onRender(final RenderEvent event) {
-    if(this.visible && currentEngineState_8004dd04 instanceof final Battle battle && !battle.isBattleDisabled() && CONFIG.getConfig(SHOW_TURN_ORDER.get())) {
+    if(this.isVisible() && currentEngineState_8004dd04 instanceof final Battle battle && !battle.isBattleDisabled() && CONFIG.getConfig(SHOW_TURN_ORDER.get())) {
       final float xOffset = RENDERER.getWidescreenOrthoOffsetX();
       final float x = 5.5f;
 

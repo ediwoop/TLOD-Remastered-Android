@@ -4,7 +4,7 @@ import android.content.Context;
 import android.view.View;
 import android.widget.FrameLayout;
 
-/** Same 1280x720 / keep canvas as Kula World, inside an immersive black window. */
+/** Centres the game surface and touch controls in the active aspect ratio. */
 final class GameStage extends FrameLayout {
   private final FrameLayout content;
 
@@ -17,10 +17,14 @@ final class GameStage extends FrameLayout {
 
   FrameLayout content() { return content; }
 
+  void updateAspectRatio() {
+    requestLayout();
+  }
+
   @Override protected void onMeasure(int widthSpec, int heightSpec) {
     int width = View.MeasureSpec.getSize(widthSpec);
     int height = View.MeasureSpec.getSize(heightSpec);
-    int[] fit = VirtualPad.fit(width, height);
+    int[] fit = VirtualPad.fit(width, height, legend.core.renderer.RemasterMode.isEnabled());
     content.measure(MeasureSpec.makeMeasureSpec(fit[0], MeasureSpec.EXACTLY),
                     MeasureSpec.makeMeasureSpec(fit[1], MeasureSpec.EXACTLY));
     setMeasuredDimension(width, height);

@@ -72,7 +72,6 @@ import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_GENERAL_SPEED_UP;
 import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_GENERAL_TOGGLE_FULLSCREEN;
 import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_GENERAL_TOGGLE_SPEED;
 import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_GENERAL_TURBO;
-import static legend.game.modding.coremod.CoreMod.LEGACY_WIDESCREEN_MODE_CONFIG;
 import static legend.game.modding.coremod.CoreMod.RESOLUTION_CONFIG;
 import static legend.game.modding.coremod.CoreMod.SHADER_ABERRATION_CONFIG;
 import static legend.game.modding.coremod.CoreMod.SHADER_BLOOM_INTENSITY_CONFIG;
@@ -1210,16 +1209,7 @@ public class RenderEngine {
   }
 
   private void pre() {
-    if(this.mainBatch.renderMode == EngineState.RenderMode.LEGACY && CONFIG.getConfig(LEGACY_WIDESCREEN_MODE_CONFIG.get()) == SubmapWidescreenMode.FORCED_4_3) {
-      final float expectedAspect = (float)this.mainBatch.nativeWidth / this.mainBatch.nativeHeight;
-      final int expectedHeight = this.renderHeight;
-      final int expectedWidth = Math.round(expectedHeight * expectedAspect);
-      final int offset = (this.renderWidth - expectedWidth) / 2;
-
-      this.api.viewport(offset, 0, expectedWidth, expectedHeight);
-    } else {
-      this.api.viewport(0, 0, this.renderWidth, this.renderHeight);
-    }
+    this.api.viewport(0, 0, this.renderWidth, this.renderHeight);
 
     // Update global transforms (default to 3D)
     this.setProjectionMode(ProjectionMode._3D);

@@ -35,21 +35,22 @@ final class PlayStationControls extends View {
   }
   void setRemastered(boolean value) { remastered=value; invalidate(); }
   void releaseAll() { removeCallbacks(holdDiagnostic); pad.clear(); started.clear(); longPressed.clear(); invalidate(); }
-  private float scale() { return Math.min(getWidth()/1280f,getHeight()/720f); }
+  private float scaleX() { return getWidth() / 1280f; }
+  private float scaleY() { return getHeight() / 720f; }
 
   @Override public boolean onTouchEvent(MotionEvent event) {
-    float scale=scale(); if(scale<=0) return false;
+    float sx=scaleX(), sy=scaleY(); if(sx<=0 || sy<=0) return false;
     int action=event.getActionMasked(), index=event.getActionIndex(), id=event.getPointerId(index);
     if(action==MotionEvent.ACTION_DOWN || action==MotionEvent.ACTION_POINTER_DOWN) {
-      Set<VirtualPad.Key> hit=VirtualPad.hit(event.getX(index)/scale,event.getY(index)/scale);
+      Set<VirtualPad.Key> hit=VirtualPad.hit(event.getX(index)/sx,event.getY(index)/sy);
       if(action==MotionEvent.ACTION_DOWN && hit.isEmpty() &&
-         (Math.abs(event.getX(index)/scale-VirtualPad.DPAD_X)>127 || Math.abs(event.getY(index)/scale-VirtualPad.DPAD_Y)>127)) return false;
-      started.put(id,hit); pad.move(id,event.getX(index)/scale,event.getY(index)/scale);
+         (Math.abs(event.getX(index)/sx-VirtualPad.DPAD_X)>127 || Math.abs(event.getY(index)/sy-VirtualPad.DPAD_Y)>127)) return false;
+      started.put(id,hit); pad.move(id,event.getX(index)/sx,event.getY(index)/sy);
       if(hit.contains(VirtualPad.Key.VIEW)) postDelayed(holdDiagnostic,ViewConfiguration.getLongPressTimeout());
     } else if(action==MotionEvent.ACTION_MOVE) {
-      for(int i=0;i<event.getPointerCount();i++) pad.move(event.getPointerId(i),event.getX(i)/scale,event.getY(i)/scale);
+      for(int i=0;i<event.getPointerCount();i++) pad.move(event.getPointerId(i),event.getX(i)/sx,event.getY(i)/sy);
     } else if(action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) {
-      Set<VirtualPad.Key> initial=started.remove(id), hit=VirtualPad.hit(event.getX(index)/scale,event.getY(index)/scale);
+      Set<VirtualPad.Key> initial=started.remove(id), hit=VirtualPad.hit(event.getX(index)/sx,event.getY(index)/sy);
       pad.up(id);
       if(initial!=null && !longPressed.contains(id)) {
         if((initial.contains(VirtualPad.Key.VIEW)&&hit.contains(VirtualPad.Key.VIEW)) ||
@@ -64,7 +65,7 @@ final class PlayStationControls extends View {
   @Override protected void onDetachedFromWindow() { releaseAll(); super.onDetachedFromWindow(); }
 
   @Override protected void onDraw(Canvas canvas) {
-    super.onDraw(canvas); canvas.save(); canvas.scale(scale(),scale());
+    super.onDraw(canvas); canvas.save(); canvas.scale(scaleX(),scaleY());
     for(VirtualPad.Button button:VirtualPad.BUTTONS) {
       float x=button.x(),y=button.y(),w=button.w(),h=button.h(),cx=x+w/2,cy=y+h/2;
       paint.setStyle(Paint.Style.FILL); paint.setColor(pad.held(button.key())?0x667d96b0:0x2e0a0f1a);

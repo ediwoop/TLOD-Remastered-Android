@@ -6,7 +6,6 @@ import legend.core.Async;
 import legend.core.MathHelper;
 import legend.core.SelfUpdater;
 import legend.core.Updater;
-import legend.core.Version;
 import legend.core.gpu.Bpp;
 import legend.core.gpu.Rect4i;
 import legend.core.gpu.VramTexture;
@@ -24,7 +23,7 @@ import legend.core.renderer.Obj;
 import legend.core.renderer.QuadBuilder;
 import legend.core.renderer.QueuedModelStandard;
 import legend.core.renderer.QueuedModelTmd;
-import legend.core.renderer.SubmapWidescreenMode;
+import legend.core.renderer.RemasterMode;
 import legend.core.renderer.Texture;
 import legend.core.renderer.Translucency;
 import legend.core.tags.Tag;
@@ -107,7 +106,6 @@ import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_DOWN;
 import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_UP;
 import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_TITLE_CONVERT_MEMCARD;
 import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_TITLE_UPDATE;
-import static legend.game.modding.coremod.CoreMod.LEGACY_WIDESCREEN_MODE_CONFIG;
 import static legend.game.modding.coremod.CoreMod.REDUCE_MOTION_FLASHING_CONFIG;
 import static legend.game.sound.Audio.FUN_8001aa90;
 import static legend.game.sound.Audio.loadMusicPackage;
@@ -119,7 +117,17 @@ public class Ttle extends EngineState<Ttle> {
   private static final Logger LOGGER = LogManager.getFormatterLogger(Ttle.class);
 
   private static final String[] MENU_LABELS={"New Game","Continue","Options"};
-  private static final int MENU_OPTIONS = MENU_LABELS.length;
+  private static final int ORIGINAL_MENU_OPTIONS = 5;
+
+  private static int menuOptions() {
+    return RemasterMode.isEnabled() ? MENU_LABELS.length : ORIGINAL_MENU_OPTIONS;
+  }
+
+  private void normalizeMenuSelection() {
+    if(this.selectedMenuOption >= menuOptions()) {
+      this.selectedMenuOption = this.hasCampaigns ? 1 : 0;
+    }
+  }
   private final legend.core.font.Font titleFont=legend.core.GameEngine.FONTS.get(legend.core.GamePaths.resolve("gfx/fonts/title-serif.json"));
   private final legend.core.font.Font readableFont=legend.core.GameEngine.FONTS.get(legend.core.GamePaths.resolve("gfx/fonts/menu-readable.json"));
 
@@ -139,7 +147,7 @@ public class Ttle extends EngineState<Ttle> {
 
   private int menuTransitionState_800c6728;
   private int menuState_800c672c;
-  private final int[] menuOptionTransparency = new int[MENU_OPTIONS];
+  private final int[] menuOptionTransparency = new int[ORIGINAL_MENU_OPTIONS];
   private int menuUpdateTransparency;
 
   private int fadeOutTimer_800c6754;
@@ -185,7 +193,7 @@ public class Ttle extends EngineState<Ttle> {
   private boolean fireLoaded;
 
   private final int[] _800ce7b0 = {255, 1, 255, 255};
-  private final int[] menuTextWidth = {407, 257, 227, 150, 150, 189, 141};
+  private final int[] menuTextWidth = {407, 257, 227, 189, 141};
 
   public static final FontOptions VERSION_FONT = new FontOptions().size(0.5f).colour(TextColour.LIGHT_BROWN).noShadow().horizontalAlign(HorizontalAlign.RIGHT);
 
@@ -280,8 +288,6 @@ public class Ttle extends EngineState<Ttle> {
 
     this.selectedMenuOption = 0;
 
-    CONFIG.setConfig(CoreMod.LEGACY_WIDESCREEN_MODE_CONFIG.get(), SubmapWidescreenMode.EXPANDED);
-    CONFIG.setConfig(CoreMod.ALLOW_WIDESCREEN_CONFIG.get(), true);
     resizeDisplay(384, 240);
     setProjectionPlaneDistance(320);
     this.GsRVIEW2_800c6760.viewpoint_00.set(0.0f, 0.0f, 2000.0f);
@@ -354,24 +360,24 @@ public class Ttle extends EngineState<Ttle> {
 
     this.menuTextTex = Texture.filteredPng("Menu", Path.of("gfx/ui/title_menu.png"));
     final QuadBuilder menuTextBuilder = new QuadBuilder("Title Screen Menu Text");
-    for(int i = 0; i < MENU_OPTIONS; i++) {
+    for(int i = 0; i < ORIGINAL_MENU_OPTIONS; i++) {
       menuTextBuilder
         .add()
         .bpp(Bpp.BITS_24)
         .posSize(512.0f, 64.0f)
         .uvSize(512.0f / this.menuTextTex.width, 64.0f / this.menuTextTex.height)
-        .uv(0, (i>=3?Math.max(0,i-1):i) * 64.0f / this.menuTextTex.height)
+        .uv(0, i * 64.0f / this.menuTextTex.height)
       ;
     }
 
     // Blurred backgrounds
-    for(int i = 0; i < MENU_OPTIONS; i++) {
+    for(int i = 0; i < ORIGINAL_MENU_OPTIONS; i++) {
       menuTextBuilder
         .add()
         .bpp(Bpp.BITS_24)
         .posSize(512.0f, 64.0f)
         .uvSize(512.0f / this.menuTextTex.width, 64.0f / this.menuTextTex.height)
-        .uv(512.0f / this.menuTextTex.width, (i>=3?Math.max(0,i-1):i) * 64.0f / this.menuTextTex.height)
+        .uv(512.0f / this.menuTextTex.width, i * 64.0f / this.menuTextTex.height)
       ;
     }
 
@@ -514,7 +520,7 @@ public class Ttle extends EngineState<Ttle> {
 
   @Method(0x800c7e50L)
   private void fadeOutForNewGame() {
-    this.fadeOutToMenu(() -> new NewCampaignScreen(true), screen -> {
+    this.fadeOutToMenu(() -> new NewCampaignScreen(RemasterMode.isEnabled()), screen -> {
       if(loadingNewGameState_800bdc34) {
         removeInputHandlers();
         this.deallocate();
@@ -527,7 +533,9 @@ public class Ttle extends EngineState<Ttle> {
   }
 
   private void fadeOutForOptions() {
-    this.fadeOutToMenu(() -> new legend.game.inventory.screens.TitleOptionsScreen(() -> whichMenu_800bdc38 = WhichMenu.UNLOAD), screen -> false);
+    this.fadeOutToMenu(() -> RemasterMode.isEnabled()
+      ? new legend.game.inventory.screens.TitleOptionsScreen(() -> whichMenu_800bdc38 = WhichMenu.UNLOAD)
+      : new OptionsPresetsScreen((selectedIndex, presets) -> whichMenu_800bdc38 = WhichMenu.UNLOAD), screen -> false);
   }
 
   private void fadeOutForLinks() {
@@ -750,7 +758,7 @@ public class Ttle extends EngineState<Ttle> {
       final float scaleX;
       final float scaleY;
 
-      if(CONFIG.getConfig(CoreMod.LEGACY_WIDESCREEN_MODE_CONFIG.get()) == SubmapWidescreenMode.EXPANDED) {
+      if(RemasterMode.isEnabled()) {
         scaleX = w / RENDERER.getNativeWidth();
         scaleY = h / RENDERER.getNativeHeight();
         left = (window.getWidth() - w) / 2;
@@ -766,15 +774,16 @@ public class Ttle extends EngineState<Ttle> {
 
       if(this.menuLoadingStage == 3) {
         if(this.menuState_800c672c < 3) {
-          for(int i = 0; i < MENU_OPTIONS; i++) {
+          for(int i = 0; i < menuOptions(); i++) {
             if(i == 1 && !this.hasCampaigns) {
               continue;
             }
 
             final int menuWidth = (int)(155 * scaleX);
-            final int menuHeight = (int)(14 * scaleY);
+            final boolean remastered = RemasterMode.isEnabled();
+            final int menuHeight = (int)((remastered ? 14 : 16) * scaleY);
             final int menuX = (int)(left + (RENDERER.getNativeWidth() * scaleX - menuWidth) / 2.0f);
-            final int menuY = (int)(top + (115.0f + i * 14.0f) * scaleY);
+            final int menuY = (int)(top + (remastered ? 115.0f + i * 14.0f : 130.0f + i * 16.0f) * scaleY);
 
             if(MathHelper.inBox((int)x, (int)y, menuX, menuY, menuWidth, menuHeight)) {
               if(this.selectedMenuOption != i) {
@@ -839,7 +848,7 @@ public class Ttle extends EngineState<Ttle> {
         final float scaleX;
         final float scaleY;
 
-        if(CONFIG.getConfig(CoreMod.LEGACY_WIDESCREEN_MODE_CONFIG.get()) == SubmapWidescreenMode.EXPANDED) {
+        if(RemasterMode.isEnabled()) {
           scaleX = w / RENDERER.getNativeWidth();
           scaleY = h / RENDERER.getNativeHeight();
           left = (window.getWidth() - w) / 2;
@@ -854,15 +863,16 @@ public class Ttle extends EngineState<Ttle> {
         }
 
         if(this.menuState_800c672c < 3) {
-          for(int i = 0; i < MENU_OPTIONS; i++) {
+          for(int i = 0; i < menuOptions(); i++) {
             if(i == 1 && !this.hasCampaigns) {
               continue;
             }
 
             final int menuWidth = (int)(155 * scaleX);
-            final int menuHeight = (int)(14 * scaleY);
+            final boolean remastered = RemasterMode.isEnabled();
+            final int menuHeight = (int)((remastered ? 14 : 16) * scaleY);
             final int menuX = (int)(left + (RENDERER.getNativeWidth() * scaleX - menuWidth) / 2.0f);
-            final int menuY = (int)(top + (115.0f + i * 14.0f) * scaleY);
+            final int menuY = (int)(top + (remastered ? 115.0f + i * 14.0f : 130.0f + i * 16.0f) * scaleY);
 
             if(MathHelper.inBox((int)x, (int)y, menuX, menuY, menuWidth, menuHeight)) {
               playMenuSound(2);
@@ -949,9 +959,10 @@ public class Ttle extends EngineState<Ttle> {
         } else if(action == INPUT_ACTION_MENU_UP.get()) {
           playMenuSound(1);
 
+          this.normalizeMenuSelection();
           this.selectedMenuOption--;
           if(this.selectedMenuOption < 0) {
-            this.selectedMenuOption = MENU_OPTIONS - 1;
+            this.selectedMenuOption = menuOptions() - 1;
           }
 
           if(this.selectedMenuOption == 1 && !this.hasCampaigns) {
@@ -962,8 +973,9 @@ public class Ttle extends EngineState<Ttle> {
         } else if(action == INPUT_ACTION_MENU_DOWN.get()) {
           playMenuSound(1);
 
+          this.normalizeMenuSelection();
           this.selectedMenuOption++;
-          if(this.selectedMenuOption >= MENU_OPTIONS) {
+          if(this.selectedMenuOption >= menuOptions()) {
             this.selectedMenuOption = 0;
           }
 
@@ -990,6 +1002,7 @@ public class Ttle extends EngineState<Ttle> {
 
   @Method(0x800c8634L)
   private void renderMenuOptions() {
+    this.normalizeMenuSelection();
     //LAB_800c868c
     switch(this.menuState_800c672c) {
       case 0 -> {
@@ -1005,7 +1018,7 @@ public class Ttle extends EngineState<Ttle> {
       case 1 -> {
         //LAB_800c8740
         //LAB_800c886c
-        for(int i = 0; i < MENU_OPTIONS; i++) {
+        for(int i = 0; i < menuOptions(); i++) {
           //LAB_800c875c
           this.menuOptionTransparency[i] += 4;
           if(this.selectedMenuOption == i) {
@@ -1031,7 +1044,7 @@ public class Ttle extends EngineState<Ttle> {
       case 2 -> {
         //LAB_800c8878
         //LAB_800c89e4
-        for(int i = 0; i < MENU_OPTIONS; i++) {
+        for(int i = 0; i < menuOptions(); i++) {
           //LAB_800c8894
           if(this.selectedMenuOption == i) {
             // Fade in selected item
@@ -1068,7 +1081,12 @@ public class Ttle extends EngineState<Ttle> {
         } else if(this.selectedMenuOption == 2) {
           this.menuTransitionState_800c6728 = 2;
           this.loadingStage = 7;
-
+        } else if(this.selectedMenuOption == 3) {
+          this.menuTransitionState_800c6728 = 2;
+          this.loadingStage = 11;
+        } else if(this.selectedMenuOption == 4) {
+          this.menuTransitionState_800c6728 = 2;
+          this.loadingStage = 8;
         }
       }
 
@@ -1078,11 +1096,52 @@ public class Ttle extends EngineState<Ttle> {
       }
     }
 
-    for(int i=0;i<MENU_OPTIONS;i++) {
-      final boolean enabled=i!=1||this.hasCampaigns;
-      final FontOptions style=new FontOptions().size(1.0f).horizontalAlign(legend.game.inventory.screens.HorizontalAlign.CENTRE)
-        .colour(!enabled?TextColour.GREY:this.selectedMenuOption==i?TextColour.YELLOW:TextColour.WHITE).shadowColour(TextColour.BLACK);
-      renderText(this.titleFont,MENU_LABELS[i],184,115+i*14,style);
+    if(RemasterMode.isEnabled()) {
+      for(int i=0;i<MENU_LABELS.length;i++) {
+        final boolean enabled=i!=1||this.hasCampaigns;
+        final FontOptions style=new FontOptions().size(1.0f).horizontalAlign(legend.game.inventory.screens.HorizontalAlign.CENTRE)
+          .colour(!enabled?TextColour.GREY:this.selectedMenuOption==i?TextColour.YELLOW:TextColour.WHITE).shadowColour(TextColour.BLACK);
+        renderText(this.titleFont,MENU_LABELS[i],184,115+i*14,style);
+      }
+    } else {
+      final float scale = 1.0f / 3.0f;
+
+      for(int i = 0; i < ORIGINAL_MENU_OPTIONS; i++) {
+        final int alpha;
+        if(i != 1 || this.hasCampaigns) {
+          alpha = this.menuOptionTransparency[i];
+        } else {
+          alpha = this.menuOptionTransparency[i] / 2;
+        }
+
+        this.optionTransforms
+          .translation(184.0f - this.menuTextWidth[i] * scale / 2.0f + RENDERER.getWidescreenOrthoOffsetX(), 130.0f + i * 16.0f, 100.0f)
+          .scale(scale, scale, 1.0f)
+        ;
+
+        RENDERER
+          .queueOrthoModel(this.menuTextObj, this.optionTransforms, QueuedModelStandard.class)
+          .translucency(Translucency.B_PLUS_F)
+          .colour(0xf8 / 255.0f, 0x80 / 255.0f, 0x10 / 255.0f)
+          .alpha(alpha / 128.0f)
+          .texture(this.menuTextTex)
+          .useTextureAlpha()
+          .vertices((i + ORIGINAL_MENU_OPTIONS) * 4, 4);
+
+        this.optionTransforms
+          .translation(184.0f - this.menuTextWidth[i] * scale / 2.0f + RENDERER.getWidescreenOrthoOffsetX(), 130.0f + i * 16.0f, 100.1f)
+          .scale(scale, scale, 1.0f)
+        ;
+
+        RENDERER
+          .queueOrthoModel(this.menuTextObj, this.optionTransforms, QueuedModelStandard.class)
+          .translucency(Translucency.B_PLUS_F)
+          .colour(this.normalColour.lerp(this.highlightColour, (alpha - 0x40) / (float)0x60, this.tempColour))
+          .alpha(alpha / 128.0f)
+          .texture(this.menuTextTex)
+          .useTextureAlpha()
+          .vertices(i * 4, 4);
+      }
     }
 
     float y = 5.0f;
@@ -1206,6 +1265,16 @@ public class Ttle extends EngineState<Ttle> {
       this.copyrightFadeInAmount = 1.0f;
     }
 
+    if(!RemasterMode.isEnabled()) {
+      final Matrix4f transforms = new Matrix4f().translation(RENDERER.getWidescreenOrthoOffsetX(), 0.0f, 200.0f);
+
+      RENDERER
+        .queueOrthoModel(this.copyrightObj, transforms, QueuedModelStandard.class)
+        .monochrome(this.copyrightFadeInAmount)
+        .texture(this.copyrightTex);
+      return;
+    }
+
     final float centre=184;
     final FontOptions footer=new FontOptions().size(.48f).horizontalAlign(legend.game.inventory.screens.HorizontalAlign.CENTRE).colour(TextColour.WHITE).shadowColour(TextColour.BLACK);
     renderText(this.readableFont,"The Legend of Dragoon is a trademark of Sony Computer Entertainment.",centre,218,footer);
@@ -1229,13 +1298,18 @@ public class Ttle extends EngineState<Ttle> {
     ;
 
     RENDERER
-      .queueOrthoModel(legend.core.renderer.RemasterMode.isEnabled()?this.remasteredTitle.logoObj:this.logoObj, transforms, QueuedModelStandard.class)
+      .queueOrthoModel(RemasterMode.isEnabled()?this.remasteredTitle.logoObj:this.logoObj, transforms, QueuedModelStandard.class)
       .translucency(Translucency.B_PLUS_F)
       .alpha(this.logoFadeInAmount)
       .useTextureAlpha()
-      .texture(legend.core.renderer.RemasterMode.isEnabled()?this.remasteredTitle.logo:this.logoTex);
+      .texture(RemasterMode.isEnabled()?this.remasteredTitle.logo:this.logoTex);
 
-
+    if(!RemasterMode.isEnabled()) {
+      transforms.translation(RENDERER.getWidescreenOrthoOffsetX(), 0.0f, 200.0f);
+      RENDERER.queueOrthoModel(this.trademarkObj, transforms, QueuedModelStandard.class)
+        .monochrome(this.logoFadeInAmount)
+        .texture(this.trademarkTex);
+    }
   }
 
   @Method(0x800cb070L)
@@ -1256,8 +1330,8 @@ public class Ttle extends EngineState<Ttle> {
     //LAB_800cb0ec
     //LAB_800cb100
     RENDERER
-      .queueOrthoModel(this.backgroundObj, new Matrix4f().scaling(RENDERER.getNativeHeight()*RENDERER.getRenderAspectRatio(),424,1), QueuedModelStandard.class)
-      .texture(legend.core.renderer.RemasterMode.isEnabled()?this.remasteredTitle.background:this.backgroundTex)
+      .queueOrthoModel(this.backgroundObj, new Matrix4f().scaling(RemasterMode.isEnabled() ? RENDERER.getNativeHeight() * RENDERER.getRenderAspectRatio() : 368, 424, 1), QueuedModelStandard.class)
+      .texture(RemasterMode.isEnabled()?this.remasteredTitle.background:this.backgroundTex)
       .screenspaceOffset(0.0f, this.backgroundScrollAmount)
       .monochrome(this.backgroundFadeInAmount);
 
@@ -1301,7 +1375,7 @@ public class Ttle extends EngineState<Ttle> {
   @Method(0x800cb728L)
   private void renderMenuLogoFire() {
     final Vector3f rotation = new Vector3f(0.0f, -MathHelper.TWO_PI / 2.0f, 0.0f);
-    final boolean remaster=legend.core.renderer.RemasterMode.isEnabled();
+    final boolean remaster=RemasterMode.isEnabled();
     final Vector3f scale = new Vector3f(remaster?0.99f:0.8544922f, remaster?1.25f:1.0f, 1.0f);
 
     if(!this.logoFireInitialized) {
@@ -1374,26 +1448,12 @@ public class Ttle extends EngineState<Ttle> {
     //LAB_800cba90
     final int colour = rsin(this.logoFlashColour) * 160 >> 12;
 
-    if(CONFIG.getConfig(LEGACY_WIDESCREEN_MODE_CONFIG.get()) == SubmapWidescreenMode.FORCED_4_3) {
-      final float expectedWidth = RENDERER.getNativeWidth();
-      final float actualWidth = RENDERER.getNativeHeight() * RENDERER.getRenderAspectRatio();
-      final float offset = (actualWidth - expectedWidth) / 2.0f;
-
-      this.flashTransforms
-        .translation(-offset, 0.0f, 30.0f)
-        .scale(actualWidth, 240.0f, 1.0f)
-      ;
-    } else if(CONFIG.getConfig(LEGACY_WIDESCREEN_MODE_CONFIG.get()) == SubmapWidescreenMode.STRETCHED) {
-      this.flashTransforms
-        .scaling(368.0f, 240.0f, 1.0f)
-        .translate(0.0f, 0.0f, 30.0f)
-      ;
+    if(RemasterMode.isEnabled()) {
+      this.flashTransforms.scaling(320.0f * (RENDERER.getRenderAspectRatio() / RENDERER.getNativeAspectRatio()), 240.0f, 1.0f);
     } else {
-      this.flashTransforms
-        .scaling(320.0f * (((float)RENDERER.getRenderWidth() / RENDERER.getRenderHeight()) / RENDERER.getNativeAspectRatio()), 240.0f, 1.0f)
-        .translate(0.0f, 0.0f, 30.0f)
-      ;
+      this.flashTransforms.scaling(RENDERER.getNativeWidth(), 240.0f, 1.0f);
     }
+    this.flashTransforms.translate(0.0f, 0.0f, 30.0f);
 
     RENDERER.queueOrthoModel(RENDERER.renderBufferQuad, this.flashTransforms, QueuedModelStandard.class)
       .texture(RENDERER.getLastFrame())

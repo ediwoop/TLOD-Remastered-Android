@@ -22,9 +22,17 @@ final class VirtualPad {
     new Button(Key.START,656,650,112,42));
 
   static int[] fit(int width, int height) {
-    if(width <= 0 || height <= 0) return new int[]{0,0};
-    if((long)width * 9 > (long)height * 16) return new int[]{Math.max(1,Math.round(height*16f/9f)),height};
-    return new int[]{width,Math.max(1,Math.round(width*9f/16f))};
+    return fit(width, height, true);
+  }
+
+  static int[] fit(int width, int height, boolean remastered) {
+    if(width <= 0 || height <= 0) return new int[]{0, 0};
+    int ratioWidth = remastered ? 16 : 4;
+    int ratioHeight = remastered ? 9 : 3;
+    if((long)width * ratioHeight > (long)height * ratioWidth) {
+      return new int[]{Math.max(1, Math.round((float)height * ratioWidth / ratioHeight)), height};
+    }
+    return new int[]{width, Math.max(1, Math.round((float)width * ratioHeight / ratioWidth))};
   }
 
   static Set<Key> hit(float x, float y) {

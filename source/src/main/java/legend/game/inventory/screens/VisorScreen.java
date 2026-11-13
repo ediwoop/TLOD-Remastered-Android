@@ -79,6 +79,7 @@ public final class VisorScreen extends MenuScreen {
   for(var m:env.environments_18){int tx=(m.tpage_20&15)*64,ty=(m.tpage_20&16)!=0?256:0;for(Tim tim:ts)if(tim.getImageRect().contains(tx,ty)){int[] p=VramTextureLoader.textureFromTim(tim).applyPalette(VramTextureLoader.palettesFromTim(tim)[0],m.vramPos_08);for(int y=0;y<m.vramPos_08.h;y++)for(int x=0;x<m.vramPos_08.w;x++){int xx=m.textureOffsetX_10-l+x,yy=m.textureOffsetY_12-t+y,c=p[y*m.vramPos_08.w+x];if(xx<0||yy<0||xx>=w||yy>=h||c==0||(c&0xffffff)==0xffff00)continue;int o=(yy*w+xx)*4;out.put(o,(byte)c);out.put(o+1,(byte)(c>>>8));out.put(o+2,(byte)(c>>>16));out.put(o+3,(byte)255);}break;}}
   return Texture.create("Visor original "+cut,builder->{builder.data(out,w,h);builder.minFilter(true);builder.magFilter(true);});
  }
+ private boolean previewRemastered = true;
  private int catalogueIndex(){return selected;}
  private void selectCatalogue(int index){if(catalogue.isEmpty())return;index=Math.clamp(index,0,catalogue.size()-1);selected=index;if(index<scroll)scroll=index;if(index>=scroll+VISIBLE_ROWS)scroll=index-VISIBLE_ROWS+1;load();}
  private void leave(){release();backdrop.delete();unload.run();}
@@ -93,7 +94,7 @@ public final class VisorScreen extends MenuScreen {
   else if(action==legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_DOWN.get())selectCatalogue(catalogueIndex()+1);
   else if(action==legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_LEFT.get())selectCatalogue(catalogueIndex()-VISIBLE_ROWS);
   else if(action==legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_RIGHT.get())selectCatalogue(catalogueIndex()+VISIBLE_ROWS);
-  else if(action==legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_CONFIRM.get())RemasterMode.setEnabled(!RemasterMode.isEnabled());
+  else if(action==legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_CONFIRM.get())this.previewRemastered = !this.previewRemastered;
   else if(action==legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK.get())leave();
   else return super.inputActionPressed(action,repeat);
   return InputPropagation.HANDLED;
@@ -101,7 +102,7 @@ public final class VisorScreen extends MenuScreen {
  @Override protected void render(){
   if(firstFrame){legend.game.FullScreenEffects.startFadeEffect(2,10);firstFrame=false;}
   RENDERER.setRenderMode(legend.game.EngineState.RenderMode.LEGACY);RENDERER.queueOrthoModel(backdrop,QueuedModelStandard.class);
-  boolean hd=RemasterMode.isEnabled();
+  boolean hd=this.previewRemastered;
   float fullWidth=RENDERER.getNativeHeight()*RENDERER.getRenderAspectRatio();
   float previewX=LIST_WIDTH+8,previewWidth=fullWidth-previewX-8;
   for(int row=0;row<VISIBLE_ROWS&&scroll+row<catalogue.size();row++){

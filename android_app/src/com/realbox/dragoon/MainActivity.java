@@ -26,7 +26,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
   WindowManager.LayoutParams window=getWindow().getAttributes();
   window.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
   getWindow().setAttributes(window);getWindow().setNavigationBarContrastEnforced(false);
-  GameStage stage=new GameStage(this);
+  stage=new GameStage(this);
   FrameLayout root=stage.content();
   SurfaceView surface=new SurfaceView(this);surface.getHolder().addCallback(this);
   root.addView(surface,new FrameLayout.LayoutParams(-1,-1));
@@ -53,8 +53,18 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
    .setPositiveButton("Cerrar",(d,which)->hideSystemBars())
    .setNeutralButton("Copiar",(d,which)->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("Dragoon",report));hideSystemBars();}).show();
  }
- private void updateVisualModeLabel(){controls.setRemastered(legend.core.renderer.RemasterMode.isEnabled());}
- private void toggleVisualMode(){boolean enabled=!legend.core.renderer.RemasterMode.isEnabled();legend.core.renderer.RemasterMode.setEnabled(enabled);getPreferences(MODE_PRIVATE).edit().putBoolean("remastered",enabled).apply();updateVisualModeLabel();}
+ private GameStage stage;
+ private void updateVisualModeLabel(){controls.setRemastered(legend.core.renderer.RemasterMode.isEnabled());stage.updateAspectRatio();}
+ private void toggleVisualMode() {
+  boolean enabled = !legend.core.renderer.RemasterMode.isEnabled();
+  legend.core.renderer.RemasterMode.setEnabled(enabled);
+  getPreferences(MODE_PRIVATE).edit().putBoolean("remastered", enabled).apply();
+  updateVisualModeLabel();
+  AndroidEngineHost engine = host;
+  if(engine != null && engine.platform() != null) {
+   engine.platform().submitCommand(() -> legend.core.GameEngine.RENDERER.updateProjections());
+  }
+ }
  public boolean dispatchKeyEvent(KeyEvent event){if(event.getKeyCode()==KeyEvent.KEYCODE_BUTTON_SELECT||event.getKeyCode()==KeyEvent.KEYCODE_TAB){if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)toggleVisualMode();return true;}if(host!=null&&host.platform()!=null&&(event.getAction()==KeyEvent.ACTION_DOWN||event.getAction()==KeyEvent.ACTION_UP)&&EngineInput.key(host.platform(),event.getKeyCode(),event.getAction()==KeyEvent.ACTION_DOWN))return true;return super.dispatchKeyEvent(event);}
  private void copy(String relative,Path root)throws IOException{
   AssetManager assets=getAssets();String[] children=assets.list(relative);

@@ -123,7 +123,7 @@ public class RenderBatch {
     // LOD uses a left-handed projection with a negated Y axis because reasons.
     if(this.renderMode == EngineState.RenderMode.PERSPECTIVE) {
       final float ratio;
-      if(CoreMod.ALLOW_WIDESCREEN_CONFIG.isValid() && CONFIG.getConfig(CoreMod.ALLOW_WIDESCREEN_CONFIG.get())) {
+      if(RemasterMode.isEnabled()) {
         ratio = (float)this.engine.getRenderWidth() / this.engine.getRenderHeight();
         final float w = this.nativeHeight * ratio;
         final float h = this.nativeHeight;
@@ -140,7 +140,7 @@ public class RenderBatch {
     } else {
       // Our perspective projection is actually a centred orthographic projection. We are doing a
       // projection plane division in the vertex shader to emulate perspective division on the GTE.
-      if(CONFIG.getConfig(CoreMod.LEGACY_WIDESCREEN_MODE_CONFIG.get()) == SubmapWidescreenMode.EXPANDED) {
+      if(RemasterMode.isEnabled()) {
         this.expectedWidth = 368;
         final float ratio = (float)this.engine.getRenderWidth() / this.engine.getRenderHeight();
         final int h = this.nativeHeight;
