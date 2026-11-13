@@ -1,13 +1,9 @@
 # TLOD Remastered para Android
 
-Proyecto privado de RB – TLOD Remastered. La primera compilación de GitHub Actions queda pendiente de incorporar el código fuente de la base 0.30 y configurar su contenido y firma.
+Versión 0.30 del proyecto RB – TLOD Remastered. El motor se basa en Severed Chains y conserva su licencia en [source/LICENSE](source/LICENSE).
 
-## Compilación
+GitHub Actions compila el motor y los componentes Android con Java 25, Android SDK 35 y R8. El flujo se ejecuta con cambios en `main` o manualmente desde Actions.
 
-En **Actions → Compilar TLOD para Android → Run workflow**, el flujo prepara Java 25, Android SDK 35 y R8. Compila el motor y empaqueta la APK. Verifica el paquete y limita su tamaño a 100 MB.
+Para generar una APK instalable, configura `DRAGOON_CONTENT_URL` con una URL HTTPS accesible al teléfono y `DRAGOON_SIGNING_KEY_BASE64` como secreto de Actions. El paquete servido debe coincidir con el tamaño y SHA-256 de `android_app/content-download-0.30.json`. El límite de la APK es de 100 MB.
 
-- `DRAGOON_CONTENT_URL` es la variable de Actions con la URL HTTPS desde la que el teléfono puede descargar el paquete descrito en `android_app/content-download-0.30.json`.
-- `DRAGOON_SIGNING_KEY_BASE64` es el secreto de Actions con el almacén de firma interno. La misma firma permite actualizar instalaciones previas.
-- La actividad de descarga inicia la instalación en el primer arranque y ofrece reintentar si falla.
-
-El ZIP con los datos PAL y el almacén de firma se gestionan fuera del árbol de código.
+El contenido de ejecución y los datos extraídos del CD PAL se preparan aparte. El código del descargador inicia la instalación automáticamente en el primer arranque. La clave de firma se guarda fuera del historial de Git.
