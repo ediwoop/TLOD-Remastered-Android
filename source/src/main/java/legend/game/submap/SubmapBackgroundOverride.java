@@ -38,7 +38,19 @@ public final class SubmapBackgroundOverride {
   DecodedImage decodeImage() {
     try {
       // Bundled plates are finished offline: one decode, no synthesis or joining on scene entry.
-      if(this.readyImage != null) return ImageCodecs.decode(legend.core.IoHelper.pathToByteBuffer(this.readyImage));
+      if(this.readyImage != null) {
+        if(this.readyImage.getFileName().toString().equals("675-ready.png")) {
+          try(var bundled = SubmapBackgroundOverride.class.getResourceAsStream("/remastered/submaps/675.jpg")) {
+            if(bundled != null) {
+              final byte[] bytes = bundled.readAllBytes();
+              final var encoded = java.nio.ByteBuffer.allocateDirect(bytes.length);
+              encoded.put(bytes).flip();
+              return ImageCodecs.decode(encoded);
+            }
+          }
+        }
+        return ImageCodecs.decode(legend.core.IoHelper.pathToByteBuffer(this.readyImage));
+      }
       if(this.surroundImage == null) return ImageCodecs.decode(legend.core.IoHelper.pathToByteBuffer(this.image));
       try(final DecodedImage base=ImageCodecs.decode(legend.core.IoHelper.pathToByteBuffer(this.image))) {
         final DecodedImage surround=ImageCodecs.decode(legend.core.IoHelper.pathToByteBuffer(this.surroundImage));
