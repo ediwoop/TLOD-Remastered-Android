@@ -44,24 +44,35 @@ jobs:
           python3 project-tools/build_android_components.py
 
       - name: Empaquetar y verificar la APK
-        if: env.DRAGOON_PACKAGE_APK == 'true'
         env:
           DRAGOON_SIGNING_KEY_BASE64: ${{ secrets.DRAGOON_SIGNING_KEY_BASE64 }}
         run: |
-          if [[ -z "$DRAGOON_CONTENT_URL" || -z "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
-            echo "::error::Configura DRAGOON_CONTENT_URL y DRAGOON_SIGNING_KEY_BASE64."
-            exit 1
-          fi
           mkdir -p signing
           umask 077
           trap 'rm -f signing/debug.keystore' EXIT
-          printf '%s' "$DRAGOON_SIGNING_KEY_BASE64" | base64 --decode > signing/debug.keystore
+          if [[ "$DRAGOON_PACKAGE_APK" == true ]]; then
+            if [[ -z "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
+              echo "::error::Configura DRAGOON_SIGNING_KEY_BASE64 para publicar una APK."
+              exit 1
+            fi
+            printf '%s' "$DRAGOON_SIGNING_KEY_BASE64" | base64 --decode > signing/debug.keystore
+          else
+            export DRAGOON_CONTENT_URL=https://example.invalid/TLOD-0.30-content.zip
+            keytool -genkeypair -keystore signing/debug.keystore -storepass android \
+              -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 \
+              -dname "CN=TLOD CI" -validity 1
+          fi
           python3 project-tools/build_internal_apk.py
           apk=android_app/build/Dragoon-Engine-Internal.apk
           bytes=$(stat -c %s "$apk")
           if (( bytes > 100000000 )); then
             echo "::error::La APK supera los 100 MB ($bytes bytes)."
             exit 1
+          fi
+          echo "APK verificada: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$DRAGOON_PACKAGE_APK" != true ]]; then
+            echo "Compilación de prueba. Configura la URL y la firma para entregar una APK." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           mkdir -p artifacts
           cp "$apk" artifacts/Legend-of-Dragoon-Remastered-0.30.apk
