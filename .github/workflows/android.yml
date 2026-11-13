@@ -49,9 +49,9 @@ jobs:
           mkdir -p signing
           umask 077
           trap 'rm -f signing/debug.keystore' EXIT
-          if [[ -n "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
-            printf '%s' "$DRAGOON_SIGNING_KEY_BASE64" | base64 --decode > signing/debug.keystore
-          else
+          if [[ -z "$DRAGOON_SIGNING_KEY_BASE64" ]] || ! printf '%s' "$DRAGOON_SIGNING_KEY_BASE64" | base64 --decode > signing/debug.keystore; then
+            unset DRAGOON_SIGNING_KEY_BASE64
+            rm -f signing/debug.keystore
             keytool -genkeypair -keystore signing/debug.keystore -storepass android \
               -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 \
               -dname "CN=TLOD CI" -validity 1
@@ -61,7 +61,10 @@ jobs:
           bytes=$(stat -c %s "$apk")
           echo "APK verificada: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
           if [[ -z "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
-            echo "Compilación de prueba. Configura la firma fija para entregar una APK." >> "$GITHUB_STEP_SUMMARY"
+            mkdir -p unsigned-artifacts
+            cp android_app/build/aligned.apk unsigned-artifacts/TLOD-0.30-unsigned.apk
+            echo "TLOD_UNSIGNED_APK=true" >> "$GITHUB_ENV"
+            echo "Paquete compilado y pendiente de firma." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/tlod-signing.txt"
@@ -77,4 +80,11 @@ jobs:
         with:
           name: TLOD-Android-0.30
           path: artifacts/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: env.TLOD_UNSIGNED_APK == 'true'
+        with:
+          name: TLOD-Android-0.30-unsigned
+          path: unsigned-artifacts/
           if-no-files-found: error
