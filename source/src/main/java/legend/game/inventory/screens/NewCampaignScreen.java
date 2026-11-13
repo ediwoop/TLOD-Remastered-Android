@@ -1,0 +1,290 @@
+package legend.game.inventory.screens;
+
+import legend.core.Config;
+import legend.core.GameEngine;
+import legend.core.IoHelper;
+import legend.core.lang.I18nText;
+import legend.core.lang.RawText;
+import legend.core.platform.input.InputAction;
+import legend.core.platform.input.InputBindings;
+import legend.game.SItem;
+import legend.game.Scus94491BpeSegment_800b;
+import legend.game.i18n.I18n;
+import legend.game.inventory.WhichMenu;
+import legend.game.inventory.screens.controls.Background;
+import legend.game.inventory.screens.controls.Button;
+import legend.game.inventory.screens.controls.Dropdown;
+import legend.game.inventory.screens.controls.Label;
+import legend.game.inventory.screens.controls.Textbox;
+import legend.game.modding.coremod.CoreMod;
+import legend.game.modding.events.gamestate.NewGameEvent;
+import legend.game.saves.Campaign;
+import legend.game.saves.CampaignType;
+import legend.game.saves.ConfigCollection;
+import legend.game.saves.ConfigPreset;
+import legend.game.saves.ConfigPresetEntry;
+import legend.game.saves.ConfigPresetManager;
+import legend.game.saves.ConfigStorage;
+import legend.game.saves.ConfigStorageLocation;
+import legend.game.saves.SaveFailedException;
+import legend.game.types.GameState52c;
+import legend.game.types.MessageBoxResult;
+import legend.game.types.MessageBoxType;
+import legend.lodmod.LodEngineStateTypes;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.legendofdragoon.modloader.registries.RegistryDelegate;
+import org.legendofdragoon.modloader.registries.RegistryId;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import static legend.core.GameEngine.CONFIG;
+import static legend.core.GameEngine.EVENTS;
+import static legend.core.GameEngine.MODS;
+import static legend.core.GameEngine.REGISTRIES;
+import static legend.core.GameEngine.SAVES;
+import static legend.core.GameEngine.bootMods;
+import static legend.game.FullScreenEffects.startFadeEffect;
+import static legend.game.Menus.deallocateRenderables;
+import static legend.game.Menus.whichMenu_800bdc38;
+import static legend.game.Scus94491BpeSegment_800b.loadingNewGameState_800bdc34;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.sound.Audio.playMenuSound;
+
+public class NewCampaignScreen extends VerticalLayoutScreen {
+  private static final Logger LOGGER = LogManager.getFormatterLogger(NewCampaignScreen.class);
+
+  private final GameState52c state = new GameState52c();
+  private final Set<String> enabledMods = new HashSet<>();
+
+  private final Textbox campaignName;
+  private final Dropdown<RegistryDelegate<CampaignType>> campaignType;
+  private final Dropdown<ConfigPresetEntry> optionPresets;
+  private String appliedPreset;
+
+  private boolean unload;
+
+  public NewCampaignScreen() {
+    loadingNewGameState_800bdc34 = false;
+
+    CONFIG.clearConfig(ConfigStorageLocation.SAVE);
+    CONFIG.clearConfig(ConfigStorageLocation.CAMPAIGN);
+    InputBindings.initBindings();
+    InputBindings.loadBindings(CONFIG);
+    this.enabledMods.addAll(MODS.getAllModIds());
+
+    deallocateRenderables(0xff);
+    startFadeEffect(2, 10);
+
+    this.addControl(new Background());
+
+    this.campaignName = new Textbox();
+    this.campaignName.setText(SAVES.generateCampaignName());
+    this.campaignName.setMaxLength(23);
+    this.campaignName.setZ(35);
+    this.addRow(new I18nText("lod_core.ui.new_campaign.campaign_name"), this.campaignName);
+
+    this.campaignType = new Dropdown<>((index, entry) -> new I18nText(entry.getTranslationKey()));
+    this.campaignType.setZ(35);
+    this.addRow(new I18nText("lod_core.ui.new_campaign.campaign"), this.campaignType);
+
+    final List<RegistryDelegate<CampaignType>> campaignTypes = new ArrayList<>();
+    for(final RegistryId campaignTypeId : REGISTRIES.campaignTypes) {
+      campaignTypes.add(REGISTRIES.campaignTypes.getEntry(campaignTypeId));
+    }
+    campaignTypes.sort(Comparator.comparing(e -> new I18nText(e.getTranslationKey()).get()));
+    campaignTypes.forEach(this.campaignType::addOption);
+
+    this.campaignType.onSelection(index -> Scus94491BpeSegment_800b.campaignType = this.campaignType.getSelectedOption());
+    Scus94491BpeSegment_800b.campaignType = campaignTypes.getFirst();
+
+    this.optionPresets = new Dropdown<>((i, e) ->
+      IoHelper.slugName(e.getName().get()).equals(this.appliedPreset)
+        ? CONFIG.getPresetDisplayName() : e.getName()
+    );
+    this.addRow(new I18nText("lod_core.ui.new_campaign.options_presets"), this.optionPresets);
+    ConfigPresetManager.loadDefaultPresets().forEach(this.optionPresets::addOption);
+    ConfigPresetManager.loadPresetList().forEach(this.optionPresets::addOption);
+    this.optionPresets.onSelection(this::onPresetSelected);
+    this.appliedPreset = IoHelper.slugName(this.optionPresets.getSelectedOption().getName().get());
+
+    for(int i = 0; i < this.optionPresets.size(); i++) {
+      if(IoHelper.slugName(this.optionPresets.getOption(i).getName().get()).equals(Config.getLastConfigPreset())) {
+        this.optionPresets.setSelectedIndex(i);
+        if(this.applyPreset(this.optionPresets.getSelectedOption())) {
+          this.appliedPreset = Config.getLastConfigPreset();
+        }
+        break;
+      }
+    }
+
+    final Button editPresets = new Button(new I18nText("lod_core.ui.new_campaign.edit_presets"));
+    this.addRow(RawText.BLANK, editPresets);
+    editPresets.onPressed(() -> {
+      bootMods(MODS.getAllModIds());
+      this.deferAction(() -> this.getStack().pushScreen(new OptionsPresetsScreen((selectedIndex, presets) -> {
+        startFadeEffect(2, 10);
+        this.getStack().popScreen();
+        bootMods(this.enabledMods);
+        CONFIG.refreshPreset();
+
+        this.optionPresets.clearOptions();
+        presets.forEach(this.optionPresets::addOption);
+        this.optionPresets.setSelectedIndex(selectedIndex);
+        this.onPresetSelected(selectedIndex);
+      })));
+    });
+
+    final Button options = new Button(new I18nText("lod_core.ui.new_campaign.options"));
+    this.addRow(RawText.BLANK, options);
+    options.onPressed(() ->
+      this.getStack().pushScreen(new OptionsCategoryScreen(CONFIG, EnumSet.allOf(ConfigStorageLocation.class), () -> {
+        CONFIG.refreshPreset();
+        startFadeEffect(2, 10);
+        this.getStack().popScreen();
+
+        // Update global config but don't save campaign config until an actual save file is made so we don't end up with orphan campaigns
+        ConfigStorage.saveConfig(CONFIG, ConfigStorageLocation.GLOBAL, Path.of("config.dcnf"));
+      }))
+    );
+
+    final Button mods = new Button(new I18nText("lod_core.ui.new_campaign.mods"));
+    this.addRow(RawText.BLANK, mods);
+    mods.onPressed(() -> {
+      bootMods(MODS.getAllModIds());
+      this.deferAction(() ->
+        this.getStack().pushScreen(new ModsScreen(this.enabledMods, () -> {
+          bootMods(this.enabledMods);
+          CONFIG.refreshPreset();
+
+          startFadeEffect(2, 10);
+          this.getStack().popScreen();
+        }))
+      );
+    });
+
+    final Button startGame = new Button(new I18nText("lod_core.ui.new_campaign.start_game"));
+    this.addRow(RawText.BLANK, startGame);
+    startGame.onPressed(() -> {
+      if(SAVES.campaignExists(this.campaignName.getText())) {
+        this.deferAction(() -> this.getStack().pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.new_campaign.campaign_name_in_use"), MessageBoxType.ALERT, result1 -> { })));
+      } else {
+        this.unload = true;
+      }
+    });
+
+    final Label saveSlots = this.addControl(new Label(new I18nText("lod_core.ui.new_campaign.unlimited_saves")));
+    saveSlots.setWidth(this.getWidth());
+    saveSlots.getFontOptions().size(0.66f).horizontalAlign(HorizontalAlign.CENTRE);
+    saveSlots.setY(200);
+  }
+
+  /** Start with the existing defaults and a unique campaign, without setup prompts. */
+  public NewCampaignScreen(final boolean startImmediately) {
+    this();
+    this.unload = startImmediately;
+    if(startImmediately) {
+      this.getControls().forEach(Control::hide);
+    }
+  }
+
+  private void onPresetSelected(final int index) {
+    final ConfigPresetEntry preset = this.optionPresets.getOption(index);
+    this.deferAction(() -> this.getStack().pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.new_campaign.load_preset_confirm", preset.getName()), MessageBoxType.CONFIRMATION, result -> {
+      if(result == MessageBoxResult.YES && this.applyPreset(preset)) {
+        this.appliedPreset = IoHelper.slugName(preset.getName().get());
+        Config.setLastConfigPreset(this.appliedPreset);
+      } else {
+        this.restorePresetSelection();
+      }
+    })));
+  }
+
+  private boolean applyPreset(final ConfigPresetEntry entry) {
+    final ConfigPreset preset = entry.getPreset();
+    if(preset == null) {
+      this.restorePresetSelection();
+      this.deferAction(() -> this.getStack().pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.options_presets.invalid_preset"), MessageBoxType.ALERT, result -> { })));
+      return false;
+    }
+
+    this.updateConfig(preset.config);
+    CONFIG.setPreset(preset.name);
+    return true;
+  }
+
+  private void restorePresetSelection() {
+    this.optionPresets.setSelectedIndex(-1);
+
+    for(int i = 0; i < this.optionPresets.size(); i++) {
+      if(IoHelper.slugName(this.optionPresets.getOption(i).getName().get()).equals(this.appliedPreset)) {
+        this.optionPresets.setSelectedIndex(i);
+        return;
+      }
+    }
+  }
+
+  private void updateConfig(final ConfigCollection newConfig) {
+    CONFIG.copyConfigFrom(newConfig, EnumSet.of(ConfigStorageLocation.CAMPAIGN, ConfigStorageLocation.SAVE));
+    InputBindings.initBindings();
+    InputBindings.loadBindings(CONFIG);
+  }
+
+  @Override
+  protected void render() {
+    if(this.unload) {
+      this.unload = false;
+      GameEngine.bootRegistries();
+
+      this.state.campaign = Campaign.create(SAVES, this.campaignName.getText().strip());
+
+      Scus94491BpeSegment_800b.campaignType.get().setUpNewCampaign(this.state);
+      final NewGameEvent newGameEvent = EVENTS.postEvent(new NewGameEvent(this.state));
+
+      playMenuSound(2);
+      SAVES.loadGameState(newGameEvent.gameState);
+
+      this.state.campaign.loadConfigInto(CONFIG);
+      CONFIG.setConfig(CoreMod.KNOWN_MODS_CONFIG.get(), MODS.getAllModIds().toArray(String[]::new));
+      CONFIG.setConfig(CoreMod.ENABLED_MODS_CONFIG.get(), this.enabledMods.toArray(String[]::new));
+      ConfigStorage.saveConfig(CONFIG, ConfigStorageLocation.CAMPAIGN, this.state.campaign.path.resolve("campaign_config.dcnf"));
+
+      try {
+        SAVES.newSave(SItem.chapterNames_80114248[0], Scus94491BpeSegment_800b.campaignType.get(), LodEngineStateTypes.SUBMAP.get().constructor_00.get(), this.state);
+      } catch(final SaveFailedException e) {
+        LOGGER.warn("Failed to create initial save", e);
+      }
+    }
+  }
+
+  private void menuEscape() {
+    playMenuSound(3);
+    whichMenu_800bdc38 = WhichMenu.UNLOAD;
+
+    bootMods(MODS.getAllModIds());
+  }
+
+  @Override
+  protected InputPropagation inputActionPressed(final InputAction action, final boolean repeat) {
+    if(super.inputActionPressed(action, repeat) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(this.getFocus() == this.campaignName) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(action == INPUT_ACTION_MENU_BACK.get()) {
+      this.menuEscape();
+      return InputPropagation.HANDLED;
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+}

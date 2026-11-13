@@ -1,0 +1,311 @@
+package legend.game.unpacker.scripts;
+
+import com.github.difflib.patch.PatchFailedException;
+import com.opencsv.exceptions.CsvException;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import org.apache.commons.io.FileUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.legendofdragoon.scripting.IncludeFailedException;
+import org.legendofdragoon.scripting.Patcher;
+import org.legendofdragoon.scripting.Translator;
+import org.legendofdragoon.scripting.tokens.Script;
+
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+import static legend.core.GameEngine.SCRIPTS;
+import static legend.core.IoHelper.crc32;
+import static legend.core.IoHelper.loadCsvFile;
+
+public class ScriptPatcher {
+  private static final Logger LOGGER = LogManager.getFormatterLogger(ScriptPatcher.class);
+
+  private final List<Path> includeDirs = List.of(Path.of("libs"), Path.of("scripts"));
+
+  private final Translator translator = new Translator();
+
+  private final ScriptPatchList patches;
+  public final Path patchesDir;
+  public final Path filesDir;
+  public final Path cacheDir;
+  public final Path backupsDir;
+
+  public ScriptPatcher(final Path patchDir, final Path filesDir, final Path cacheDir, final Path backupsDir) {
+    this.backupsDir = backupsDir;
+    this.patches = this.loadPatchList(filesDir, patchDir.resolve("scripts.csv"));
+    this.patchesDir = patchDir;
+    this.filesDir = filesDir;
+    this.cacheDir = cacheDir;
+  }
+
+  private ScriptPatchList loadPatchList(final Path filesDir, final Path patchListFile) {
+    try {
+      return ScriptPatchList.load(filesDir, patchListFile);
+    } catch(final InvalidPatchListException e) {
+      if(e.getCause() instanceof NoSuchFileException) {
+        LOGGER.warn("Patch cache does not exist");
+      } else {
+        LOGGER.warn("Failed to load patch list", e);
+      }
+
+      return ScriptPatchList.empty();
+    }
+  }
+
+  public ScriptPatchList getPatchList() {
+    return this.patches;
+  }
+
+  private boolean needsUpdate(@Nullable final ScriptPatch cachedPatch, final ScriptPatch newPatch) throws IOException {
+    // Patch isn't cached, definitely needs update
+    if(cachedPatch == null) {
+      return true;
+    }
+
+    final Map<String, Integer> cachedCrc32s = this.getCrc32s(this.cacheDir, cachedPatch);
+    final Map<String, Integer> newCrc32s = this.getCrc32s(this.patchesDir, newPatch);
+
+    for(final var entry : newCrc32s.entrySet()) {
+      if(!Objects.equals(cachedCrc32s.get(entry.getKey()), entry.getValue())) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private Map<String, Integer> getCrc32s(final Path baseBath, final ScriptPatch patch) throws IOException {
+    final Map<String, Integer> crc32s = new HashMap<>();
+    this.getCrc32s(baseBath, patch.patchFile, crc32s);
+    this.getCrc32s(baseBath, this.resolvePatchConfigName(patch.patchFile), crc32s);
+    return crc32s;
+  }
+
+  private static final Pattern INCLUDE_FILE = Pattern.compile("^\\s*\\+?#?include\\s+(.+?)\\s*;?\\s*$");
+
+  private void getCrc32s(final Path basePath, final String path, final Map<String, Integer> crc32s) throws IOException {
+    // We've already checked this file
+    if(crc32s.containsKey(path)) {
+      return;
+    }
+
+    final Path fullPath = basePath.resolve(path);
+
+    // Insert nulls for missing files
+    if(!Files.exists(fullPath)) {
+      crc32s.put(path, null);
+      return;
+    }
+
+    // CRC32 for this file
+    crc32s.put(path, crc32(fullPath));
+
+    // Parse out includes and CRC32 each of those
+    try(final Stream<String> stream = Files.lines(fullPath)) {
+      final List<String> includePaths = stream
+        .map(INCLUDE_FILE::matcher)
+        .filter(Matcher::matches)
+        .map(matcher -> matcher.group(1))
+        .toList();
+
+      for(final String includePath : includePaths) {
+        this.getCrc32s(basePath, this.resolveInclude(basePath, this.includeDirs, Path.of(includePath)).toString(), crc32s);
+      }
+    }
+  }
+
+  private Path resolveInclude(final Path basePath, final List<Path> includePaths, final Path originalIncludeFile) {
+    Path includeFile = originalIncludeFile;
+    Path resolvedIncludeFile = null;
+
+    if(!includeFile.isAbsolute()) {
+      for(final Path includePath : includePaths) {
+        final Path resolved = basePath.resolve(includePath).resolve(includeFile).normalize();
+        if(Files.exists(resolved)) {
+          resolvedIncludeFile = resolved;
+          break;
+        }
+      }
+
+      includeFile = resolvedIncludeFile;
+    }
+
+    if(includeFile == null || !Files.exists(includeFile)) {
+      throw new IncludeFailedException("Could not resolve include " + originalIncludeFile + " in include paths " + includePaths);
+    }
+
+    return basePath.relativize(includeFile).normalize();
+  }
+
+  public void apply() throws IOException, PatchFailedException {
+    LOGGER.info("Applying script patches");
+
+    final ScriptPatchList cacheList = this.loadPatchList(this.filesDir, this.cacheDir.resolve("scripts.csv"));
+
+    // Apply new or changed patches
+    boolean changed = false;
+    for(final ScriptPatch patch : this.patches) {
+      final ScriptPatch cachedPatch = cacheList.getPatchForScript(patch.sourceFile);
+
+      if(this.needsUpdate(cachedPatch, patch)) {
+        LOGGER.info("Patching %s...", patch.sourceFile);
+
+        try {
+          this.patchFile(patch);
+        } catch(final PatchFailedException error) {
+          LOGGER.error("Patch failed for script: %s", patch.patchFile);
+          throw error;
+        }
+
+        changed = true;
+      }
+    }
+
+    // Restore any patches that have been deleted
+    for(final ScriptPatch cachedPatch : cacheList) {
+      if(this.patches.getPatchForScript(cachedPatch.sourceFile) == null) {
+        LOGGER.info("Restoring %s...", cachedPatch.sourceFile);
+        this.restoreFile(cachedPatch);
+        changed = true;
+      }
+    }
+
+    // Cache changes
+    if(changed) {
+      FileUtils.deleteDirectory(this.cacheDir.toFile());
+      FileUtils.copyDirectory(this.patchesDir.toFile(), this.cacheDir.toFile());
+    }
+  }
+
+  public void patchFile(final ScriptPatch patch) throws IOException, PatchFailedException {
+    // Back up the original file (if we're doing a replacement and the original doesn't exist, that's fine)
+    if(!Files.exists(this.backupsDir.resolve(patch.sourceFile)) && (patch.type != PatchType.REPLACEMENT || Files.exists(this.filesDir.resolve(patch.sourceFile)))) {
+      this.backupFile(patch.sourceFile);
+    }
+
+    if(patch.type == PatchType.DIFF) {
+      this.patchFile(patch.sourceFile, patch.patchFile);
+    } else if(patch.type == PatchType.REPLACEMENT) {
+      this.replaceFile(patch.sourceFile, patch.patchFile);
+    } else {
+      throw new RuntimeException("Unsupported patch type " + patch.type);
+    }
+  }
+
+  public void patchFile(final String source, final String patch) throws IOException, PatchFailedException {
+    this.patchFile(this.filesDir.resolve(source), this.backupsDir.resolve(source), this.patchesDir.resolve(patch));
+  }
+
+  public void patchFile(final Path sourceFile, final Path backupFile, final Path patchFile) throws IOException, PatchFailedException {
+    final List<String> patchLines = Files.readAllLines(patchFile);
+
+    final Path configPath = this.resolvePatchConfigPath(patchFile);
+    final IntList branchList = new IntArrayList();
+    final Int2IntMap tableLengths = new Int2IntOpenHashMap();
+
+    this.getPatchConfigs(configPath, branchList, tableLengths);
+
+    final List<String> decompiledLines = this.decompile(sourceFile.toString(), Files.readAllBytes(backupFile), branchList, tableLengths);
+    final String patched = Patcher.applyPatch(decompiledLines, patchLines);
+
+    try {
+      final byte[] recompiledSource = this.recompile(sourceFile.toString(), patched);
+      Files.write(sourceFile, recompiledSource, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    } catch(final Exception e) {
+      throw new RuntimeException("Failed to patch " + sourceFile + " with patch " + patchFile, e);
+    }
+  }
+
+  public void replaceFile(final String source, final String patch) throws IOException {
+    this.replaceFile(this.filesDir.resolve(source), this.patchesDir.resolve(patch));
+  }
+
+  public void replaceFile(final Path sourceFile, final Path patchFile) throws IOException {
+    final String patchContents = legend.core.TextFiles.readString(patchFile);
+    final byte[] recompiledSource = this.recompile(sourceFile.toString(), patchContents);
+    Files.write(sourceFile, recompiledSource, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+  }
+
+  private void backupFile(final String scriptPath) throws IOException {
+    final Path sourcePath = this.filesDir.resolve(scriptPath);
+    final Path destPath = this.backupsDir.resolve(scriptPath);
+    if(!Files.exists(destPath.getParent())) {
+      Files.createDirectories(destPath.getParent());
+    }
+    Files.copy(sourcePath, destPath);
+  }
+
+  private void restoreFile(final ScriptPatch cachedPatch) throws IOException {
+    final Path sourcePath = this.filesDir.resolve(cachedPatch.sourceFile);
+    final Path backupPath = this.backupsDir.resolve(cachedPatch.sourceFile);
+    Files.move(backupPath, sourcePath, StandardCopyOption.REPLACE_EXISTING);
+
+    Path currentPath = backupPath.getParent();
+    while(!currentPath.equals(this.backupsDir)) {
+      if(Objects.requireNonNull(currentPath.toFile().listFiles()).length == 0) {
+        Files.delete(currentPath);
+      }
+      currentPath = currentPath.getParent();
+    }
+  }
+
+  private List<String> decompile(final String name, final byte[] data, final IntList branches, final Int2IntMap tableLengths) {
+    final Script script = SCRIPTS.disassemble(name, data, branches, tableLengths);
+    final String decompiledOutput = this.translator.translate(script, SCRIPTS.meta(), true, true, false);
+    return decompiledOutput.lines().toList();
+  }
+
+  private byte[] recompile(final String name, final String patched) {
+    return SCRIPTS.assemble(name, patched);
+  }
+
+  public String resolvePatchConfigName(final String diffName) {
+    return diffName.substring(0, diffName.lastIndexOf('.')) + ".config.csv";
+  }
+
+  public Path resolvePatchConfigPath(final Path diffPath) {
+    return diffPath.resolveSibling(this.resolvePatchConfigName(diffPath.getFileName().toString()));
+  }
+
+  public void getPatchConfigs(final Path configPath, final IntList branchList, final Int2IntMap tableLengthList) {
+    List<String[]> patchConfig = new ArrayList<>();
+
+    if(Files.exists(configPath)) {
+      try {
+        patchConfig = loadCsvFile(configPath);
+      } catch(final CsvException | IOException err) {
+        LOGGER.error("Patch config error for config: %s", configPath);
+      }
+    }
+
+    for(final String[] strings : patchConfig) {
+      switch(strings[0]) {
+        case "branch":
+          branchList.add(Integer.parseInt(strings[1].trim(), 16));
+          break;
+        case "table_length":
+          tableLengthList.put(Integer.parseInt(strings[1].trim(), 16), Integer.parseInt(strings[2].trim()));
+          break;
+        default:
+          throw new IllegalArgumentException("Invalid patch config option: " + strings[0]);
+      }
+    }
+  }
+}

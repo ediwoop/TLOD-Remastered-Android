@@ -1,0 +1,825 @@
+package legend.game.combat.bent;
+
+import legend.core.renderer.QueuedModelBattleTmd;
+import legend.core.gpu.Gpu;
+import legend.core.gpu.Rect4i;
+import legend.core.gte.MV;
+import legend.core.gte.ModelPart10;
+import legend.core.memory.Method;
+import legend.game.characters.Element;
+import legend.game.characters.ElementSet;
+import legend.game.characters.StatCollection;
+import legend.game.characters.StatType;
+import legend.game.combat.Battle;
+import legend.game.combat.types.AttackType;
+import legend.game.combat.types.BattleObject;
+import legend.game.combat.types.BattleSoundUsage;
+import legend.game.combat.types.CombatantStruct1a8;
+import legend.game.inventory.ItemStack;
+import legend.game.inventory.SpellStats0c;
+import legend.game.modding.events.battle.ActiveItemEvent;
+import legend.game.modding.events.battle.ActiveSpellEvent;
+import legend.game.modding.events.battle.RegisterBattleEntityStatsEvent;
+import legend.game.scripting.Param;
+import legend.game.scripting.ScriptFile;
+import legend.game.scripting.ScriptState;
+import legend.game.sound.SoundFile;
+import legend.game.tmd.Renderer;
+import legend.game.types.Model124;
+import legend.lodmod.LodMod;
+import org.joml.Vector3f;
+import org.joml.Vector3i;
+import org.legendofdragoon.modloader.registries.RegistryDelegate;
+import org.legendofdragoon.modloader.registries.RegistryId;
+
+import java.util.HashSet;
+import java.util.Set;
+
+import static legend.core.GameEngine.EVENTS;
+import static legend.core.GameEngine.GTE;
+import static legend.core.GameEngine.REGISTRIES;
+import static legend.core.GameEngine.RENDERER;
+import static legend.game.EngineStates.currentEngineState_8004dd04;
+import static legend.game.Graphics.GsGetLws;
+import static legend.game.Graphics.GsSetLightMatrix;
+import static legend.game.Graphics.lightColourMatrix_800c3508;
+import static legend.game.Graphics.lightDirectionMatrix_800c34e8;
+import static legend.game.Graphics.tmdGp0Tpage_1f8003ec;
+import static legend.game.Graphics.zOffset_1f8003e8;
+import static legend.game.Models.animateModel;
+import static legend.game.Models.applyModelRotationAndScale;
+import static legend.game.Models.vramSlots_8005027c;
+import static legend.game.Scus94491BpeSegment_8006.battleState_8006e398;
+import static legend.game.Scus94491BpeSegment_800b.battleFlags_800bc960;
+import static legend.game.combat.Battle.FUN_800ca194;
+import static legend.game.combat.Battle.combatantTimRects_800fa6e0;
+import static legend.game.combat.Battle.loadCombatantModelAndAnimation;
+import static legend.game.combat.SEffe.renderBttlShadow;
+
+public abstract class BattleEntity27c extends BattleObject {
+  /** Unknown */
+  public static final int FLAG_1 = 0x1;
+  /** Transformed into a dragoon */
+  public static final int FLAG_DRAGOON = 0x2;
+  /** Monster */
+  public static final int FLAG_MONSTER = 0x4;
+  /** It is currently this bent's turn */
+  public static final int FLAG_CURRENT_TURN = 0x8;
+  /** Bent will not be rendered or ticked (script still ticks) */
+  public static final int FLAG_HIDE = 0x10;
+  /** Next battle tick, this bent will be selected to take a turn */
+  public static final int FLAG_TAKE_FORCED_TURN = 0x20;
+  /** Bent is dead */
+  public static final int FLAG_DEAD = 0x40;
+  /** After the current animation loop is done, stop animating */
+  public static final int FLAG_ANIMATE_ONCE = 0x80;
+  /** Unknown */
+  public static final int FLAG_100 = 0x100;
+  /** This monster is a piece of a whole monster */
+  public static final int FLAG_MONSTER_SUB_PART = 0x200;
+  /** Unknown */
+  public static final int FLAG_400 = 0x400;
+  /** Don't load script (used by cutscene bents controlled by other scripts) */
+  public static final int FLAG_NO_SCRIPT = 0x800;
+  /** When set, the battle actions menu will be refreshed */
+  public static final int FLAG_RELOAD_BATTLE_ACTIONS = 0x1000;
+  /** Don't drop loot (set when monster has died to prevent duplicate drops) */
+  public static final int FLAG_NO_LOOT = 0x2000;
+  /** Bent cannot be targeted */
+  public static final int FLAG_CANT_TARGET = 0x4000;
+  /** This monster is the main part of a multi-part monster */
+  public static final int FLAG_MONSTER_MAIN_PART = 0x8000;
+
+  private static final int[] vramSlotIndices_800fa730 = {0, 1, 2, 3, 4, 5, 6, 14, 15, 16};
+
+  public final BattleEntityType type;
+
+  public Element element;
+
+  public final StatCollection stats;
+
+  /**
+   * <ul>
+   *   <li>0x1 - Petrified</li>
+   *   <li>0x2 - Bewitched</li>
+   *   <li>0x4 - Confused</li>
+   *   <li>0x8 - Fearful</li>
+   *   <li>0x10 - Stunned</li>
+   *   <li>0x20 - Weapon blocked</li>
+   *   <li>0x40 - Dispirited</li>
+   *   <li>0x80 - Poison</li>
+   *   <li>0x800 - Don't apply elemental effects for this attack (cleared after damage is done)</li>
+   *   <li>0x2000 - Can become dragoon</li>
+   *   <li>0x4000 - Divine Dragoon</li>
+   * </ul>
+   */
+  public int status_0e;
+
+  /**
+   * <ul>
+   *   <li>0x8 - Display "Attack All"</li>
+   *   <li>0x40 - Chance to kill</li>
+   *   <li>0x80 - Resistance</li>
+   * </ul>
+   */
+  public int specialEffectFlag_14;
+//  public int equipmentType_16;
+//  public int equipment_02_18;
+//  public int equipmentEquipableFlags_1a;
+
+//  public int equipment_05_1e;
+  public final ElementSet equipmentElementalResistance_20 = new ElementSet();
+  public final ElementSet equipmentElementalImmunity_22 = new ElementSet();
+  /**
+   * <ul>
+   *   <li>0x1 - Petrify</li>
+   *   <li>0x2 - Bewitchment</li>
+   *   <li>0x4 - Confusion</li>
+   *   <li>0x8 - Fear</li>
+   *   <li>0x10 - Stun</li>
+   *   <li>0x20 - Arm Block</li>
+   *   <li>0x40 - Dispirit</li>
+   *   <li>0x80 - Poison</li>
+   * </ul>
+   */
+  public int equipmentStatusResist_24;
+//  public int equipment_09_26;
+  public int equipmentAttack1_28;
+
+//  public int _2e;
+//  public int equipmentIcon_30;
+//  public int attackHit_3c;
+//  public int magicHit_3e;
+  /**
+   * Player only - if you have a weapon that inflicts a status, this will be a %
+   * <p>
+   * Also used if specialEffect has one-hit-KO enabled
+   */
+  public int onHitStatusChance_44;
+//  public int equipment_19_46;
+//  public int equipment_1a_48;
+  /**
+   * Player only - if you have a weapon that inflicts a status, this will be set of statuses
+   *
+   * <ul>
+   *   <li>0x1 - Petrify</li>
+   *   <li>0x2 - Bewitchment</li>
+   *   <li>0x4 - Confusion</li>
+   *   <li>0x8 - Fear</li>
+   *   <li>0x10 - Stun</li>
+   *   <li>0x20 - Arm Block</li>
+   *   <li>0x40 - Dispirit</li>
+   *   <li>0x80 - Poison</li>
+   * </ul>
+   */
+  public int equipmentOnHitStatus_4a;
+  /** Determines turn order */
+  public int turnValue_4c;
+//  public int spellId_4e;
+
+//  public int itemId_52;
+  public int guard_54;
+
+  /** Enemy aggressiveness with counters; lower means it can counter tighter timings; 0 = cannot counter */
+  public int hitCounterFrameThreshold_7e;
+  public int _80;
+  public int _82;
+  /** X offset for archer/item throw target, status ailment effect, 1/100 scale */
+  public int middleOffsetX_84;
+  /** Y offset for archer/item throw target, status ailment effect, 1/100 scale */
+  public int middleOffsetY_86;
+//  public int _88;
+//  public int _8a;
+
+  public SpellStats0c spell_94;
+
+  public int powerAttack_b4;
+  public int powerAttackTurns_b5;
+  public int powerMagicAttack_b6;
+  public int powerMagicAttackTurns_b7;
+  public int powerDefence_b8;
+  public int powerDefenceTurns_b9;
+  public int powerMagicDefence_ba;
+  public int powerMagicDefenceTurns_bb;
+  public int tempAttackHit_bc;
+  public int tempAttackHitTurns_bd;
+  public int tempMagicHit_be;
+  public int tempMagicHitTurns_bf;
+  public int tempAttackAvoid_c0;
+  public int tempAttackAvoidTurns_c1;
+  public int tempMagicAvoid_c2;
+  public int tempMagicAvoidTurns_c3;
+  public int tempPhysicalImmunity_c4;
+  public int tempPhysicalImmunityTurns_c5;
+  public int tempMagicalImmunity_c6;
+  public int tempMagicalImmunityTurns_c7;
+
+  public ItemStack item_d4;
+//  public int _ec;
+//  public int _ee;
+//  public int _f0;
+//  public int _f2;
+
+  public boolean physicalImmunity_110;
+  public boolean magicalImmunity_112;
+  public boolean physicalResistance_114;
+  public boolean magicalResistance_116;
+
+  public int _142;
+  public CombatantStruct1a8 combatant_144;
+  public final Model124 model_148;
+  public int combatantIndex_26c;
+  /** Not 100% sure on this name */
+  public int loadingAnimIndex_26e;
+  /** Not 100% sure on this name */
+  public int currentAnimIndex_270;
+  /** Also monster ID */
+  public final int charId_272;
+  public int allBentSlot_274;
+  public int typeBentSlot_276 = -1;
+  /** Has model? Used to be used to free model, no longer used since it's managed by java */
+  public int _278;
+
+  // These were pulled from ScriptState, they're only used on bents
+  public ScriptState<BattleEntity27c> movementParent_c8;
+  public int movementTicks_cc;
+  /** Was .8 */
+  public final Vector3f movementRemaining_d0 = new Vector3f();
+  /** Was .8 */
+  public final Vector3f movementStep_dc = new Vector3f();
+  public final Vector3f movementDestination_e8 = new Vector3f();
+  /** Was .8 */
+  public float movementStepYAcceleration_f4;
+
+  private final Vector3i colour = new Vector3i(0x80, 0x80, 0x80);
+
+  public final Rect4i scissor = new Rect4i();
+  public boolean useScissor;
+
+  public SoundFile soundFile;
+
+  public BattleEntity27c(final BattleEntityType type, final Battle battle, final String name, final int charId) {
+    super(battle, BattleObject.BOBJ);
+    this.type = type;
+    this.model_148 = new Model124(name);
+    this.charId_272 = charId;
+
+    final Set<StatType> stats = new HashSet<>();
+    EVENTS.postEvent(new RegisterBattleEntityStatsEvent(type, stats));
+    this.stats = new StatCollection(stats.toArray(StatType[]::new));
+  }
+
+  public abstract String getName();
+
+  public SoundFile resolveSoundFile(final BattleSoundUsage usage) {
+    return this.soundFile;
+  }
+
+  @Override
+  public String toString() {
+    return this.getClass().getSimpleName() + '[' + this.getName() + ']';
+  }
+
+  public void scissor(final int x, final int y, final int w, final int h) {
+    this.scissor.set(x, y, w, h);
+    this.useScissor = true;
+  }
+
+  public void disableScissor() {
+    this.useScissor = false;
+  }
+
+  public int getEffectiveDefence() {
+    return this.stats.getStat(LodMod.DEFENSE_STAT.get()).get();
+  }
+
+  public int getEffectiveMagicDefence() {
+    return this.stats.getStat(LodMod.MAGIC_DEFENSE_STAT.get()).get();
+  }
+
+  public abstract ElementSet getAttackElements();
+
+  public Element getElement() {
+    return this.element;
+  }
+
+  public abstract int calculatePhysicalDamage(final BattleEntity27c target);
+  /**
+   * @param magicType item (0), spell (1)
+   */
+  public abstract int calculateMagicDamage(final BattleEntity27c target, final int magicType);
+
+  public int applyPhysicalDamageMultipliers(final BattleEntity27c target, final int damage) {
+    return damage;
+  }
+
+  public void applyAttackEffects() {
+
+  }
+
+  @Method(0x800f29d4L)
+  public int applyDamageResistanceAndImmunity(final int damage, final AttackType attackType) {
+    if(attackType.isPhysical()) {
+      if(this.physicalImmunity_110) {
+        return 0;
+      }
+
+      if(this.physicalResistance_114) {
+        return damage / 2;
+      }
+    }
+
+    if(attackType.isMagical()) {
+      if(this.magicalImmunity_112) {
+        return 0;
+      }
+
+      if(this.magicalResistance_116) {
+        return damage / 2;
+      }
+    }
+
+    return damage;
+  }
+
+  public int applyElementalResistanceAndImmunity(final int damage, final Element element) {
+    if(this.equipmentElementalImmunity_22.contains(element)) {
+      return 0;
+    }
+
+    return damage;
+  }
+
+  public void turnFinished() {
+    if(this.powerAttackTurns_b5 > 0) {
+      this.powerAttackTurns_b5--;
+
+      if(this.powerAttackTurns_b5 == 0) {
+        this.powerAttack_b4 = 0;
+      }
+    }
+
+    if(this.powerMagicAttackTurns_b7 > 0) {
+      this.powerMagicAttackTurns_b7--;
+
+      if(this.powerMagicAttackTurns_b7 == 0) {
+        this.powerMagicAttack_b6 = 0;
+      }
+    }
+
+    if(this.powerDefenceTurns_b9 > 0) {
+      this.powerDefenceTurns_b9--;
+
+      if(this.powerDefenceTurns_b9 == 0) {
+        this.powerDefence_b8 = 0;
+      }
+    }
+
+    if(this.powerMagicDefenceTurns_bb > 0) {
+      this.powerMagicDefenceTurns_bb--;
+
+      if(this.powerMagicDefenceTurns_bb == 0) {
+        this.powerMagicDefence_ba = 0;
+      }
+    }
+
+    if(this.tempAttackHitTurns_bd > 0) {
+      this.tempAttackHitTurns_bd--;
+
+      if(this.tempAttackHitTurns_bd == 0) {
+        this.tempAttackHit_bc = 0;
+      }
+    }
+
+    if(this.tempMagicHitTurns_bf > 0) {
+      this.tempMagicHitTurns_bf--;
+
+      if(this.tempMagicHitTurns_bf == 0) {
+        this.tempMagicHit_be = 0;
+      }
+    }
+
+    if(this.tempAttackAvoidTurns_c1 > 0) {
+      this.tempAttackAvoidTurns_c1--;
+
+      if(this.tempAttackAvoidTurns_c1 == 0) {
+        this.tempAttackAvoid_c0 = 0;
+      }
+    }
+
+    if(this.tempMagicAvoidTurns_c3 > 0) {
+      this.tempMagicAvoidTurns_c3--;
+
+      if(this.tempMagicAvoidTurns_c3 == 0) {
+        this.tempMagicAvoid_c2 = 0;
+      }
+    }
+
+    if(this.tempPhysicalImmunityTurns_c5 > 0) {
+      this.tempPhysicalImmunityTurns_c5--;
+
+      if(this.tempPhysicalImmunityTurns_c5 == 0) {
+        this.tempPhysicalImmunity_c4 = 0;
+      }
+    }
+
+    if(this.tempMagicalImmunityTurns_c7 > 0) {
+      this.tempMagicalImmunityTurns_c7--;
+
+      if(this.tempMagicalImmunityTurns_c7 == 0) {
+        this.tempMagicalImmunity_c6 = 0;
+      }
+    }
+
+    this.stats.turnFinished(this);
+  }
+
+  @Method(0x800f3204L)
+  public void recalculateSpeedAndPerHitStats() {
+
+  }
+
+  public abstract int getStatusEffectChance(final AttackType attackType);
+  public abstract int getStatusEffectStatus(final AttackType attackType);
+  public abstract int getSpecialEffectStat(final AttackType attackType);
+  public abstract int getSpecialEffectMask(final AttackType attackType);
+
+  @Deprecated
+  public void getStat(final BattleEntityStat statIndex, final Param out) {
+    if(out.isRegistryId()) {
+      out.set(switch(statIndex) {
+        case SPELL_ID -> this.spell_94 != null ? this.spell_94.getRegistryId() : null;
+        case ITEM_ID -> this.item_d4.getItem().getRegistryId();
+        case ITEM_ELEMENT -> this.item_d4.getAttackElement().getRegistryId();
+        case ELEMENT -> this.getElement().getRegistryId();
+
+        default -> throw new IllegalArgumentException("Some other stat that I haven't implemented " + statIndex);
+      });
+
+      return;
+    }
+
+    out.set(switch(statIndex) {
+      case CURRENT_HP -> this.stats.getStat(LodMod.HP_STAT.get()).getCurrent();
+
+      case STATUS -> this.status_0e;
+      case MAX_HP -> this.stats.getStat(LodMod.HP_STAT.get()).getMax();
+
+      case SPECIAL_EFFECT_FLAGS -> this.specialEffectFlag_14;
+//      case EQUIPMENT_EQUIPABLE_FLAGS -> this.equipmentEquipableFlags_1a;
+
+      case EQUIPMENT_ELEMENTAL_RESISTANCE -> this.equipmentElementalResistance_20.pack();
+      case EQUIPMENT_ELEMENTAL_IMMUNITY -> this.equipmentElementalImmunity_22.pack();
+      case EQUIPMENT_STATUS_RESIST -> this.equipmentStatusResist_24;
+      case EQUIPMENT_ATTACK -> this.equipmentAttack1_28;
+
+      case SPEED -> this.stats.getStat(LodMod.SPEED_STAT.get()).get();
+      case ATTACK -> this.stats.getStat(LodMod.ATTACK_STAT.get()).get();
+      case MAGIC_ATTACK -> this.stats.getStat(LodMod.MAGIC_ATTACK_STAT.get()).get();
+      case DEFENCE -> this.stats.getStat(LodMod.DEFENSE_STAT.get()).get();
+      case MAGIC_DEFENCE -> this.stats.getStat(LodMod.MAGIC_DEFENSE_STAT.get()).get();
+      case ATTACK_HIT -> this.stats.getStat(LodMod.ATTACK_HIT_STAT.get()).get();
+      case MAGIC_HIT -> this.stats.getStat(LodMod.MAGIC_HIT_STAT.get()).get();
+      case ATTACK_AVOID -> this.stats.getStat(LodMod.ATTACK_AVOID_STAT.get()).get();
+      case MAGIC_AVOID -> this.stats.getStat(LodMod.MAGIC_AVOID_STAT.get()).get();
+      case ON_HIT_STATUS_CHANCE -> this.onHitStatusChance_44;
+      case EQUIPMENT_ON_HIT_STATUS -> this.equipmentOnHitStatus_4a;
+      case TURN_VALUE -> this.turnValue_4c;
+
+      case GUARD -> this.guard_54;
+
+      case HIT_COUNTER_FRAME_THRESHOLD -> this.hitCounterFrameThreshold_7e;
+      case _62 -> this._80;
+      case _63 -> this._82;
+      case MIDDLE_OFFSET_X -> this.middleOffsetX_84;
+      case MIDDLE_OFFSET_Y -> this.middleOffsetY_86;
+
+      case SPELL_TARGET_TYPE -> this.spell_94.targetType_00;
+      case SPELL_FLAGS -> this.spell_94.flags_01;
+      case SPELL_SPECIAL_EFFECT -> this.spell_94.specialEffect_02;
+      case SPELL_DAMAGE_MULTIPLIER -> this.spell_94.damageMultiplier_03;
+      case SPELL_MULTI -> this.spell_94.multi_04;
+      case SPELL_ACCURACY -> this.spell_94.accuracy_05;
+      case SPELL_MP -> this.spell_94.mp_06;
+      case SPELL_STATUS_CHANCE -> this.spell_94.statusChance_07;
+      case SPELL_ELEMENT -> this.spell_94.element_08.get().flag;
+      case SPELL_STATUS_TYPE -> this.spell_94.statusType_09;
+      case SPELL_BUFF_TYPE -> this.spell_94.buffType_0a;
+      case SPELL_0b -> this.spell_94._0b;
+
+      case POWER_ATTACK -> (this.powerAttackTurns_b5 & 0xff) << 8 | this.powerAttack_b4 & 0xff;
+      case POWER_MAGIC_ATTACK -> (this.powerMagicAttackTurns_b7 & 0xff) << 8 | this.powerMagicAttack_b6 & 0xff;
+      case POWER_DEFENCE -> (this.powerDefenceTurns_b9 & 0xff) << 8 | this.powerDefence_b8 & 0xff;
+      case POWER_MAGIC_DEFENCE -> (this.powerMagicDefenceTurns_bb & 0xff) << 8 | this.powerMagicDefence_ba & 0xff;
+      case TEMP_ATTACK_HIT -> (this.tempAttackHitTurns_bd & 0xff) << 8 | this.tempAttackHit_bc & 0xff;
+      case TEMP_MAGIC_HIT -> (this.tempMagicHitTurns_bf & 0xff) << 8 | this.tempMagicHit_be & 0xff;
+      case TEMP_ATTACK_AVOID -> (this.tempAttackAvoidTurns_c1 & 0xff) << 8 | this.tempAttackAvoid_c0 & 0xff;
+      case TEMP_MAGIC_AVOID -> (this.tempMagicAvoidTurns_c3 & 0xff) << 8 | this.tempMagicAvoid_c2 & 0xff;
+      case TEMP_PHYSICAL_IMMUNITY -> (this.tempPhysicalImmunityTurns_c5 & 0xff) << 8 | this.tempPhysicalImmunity_c4 & 0xff;
+      case TEMP_MAGICAL_IMMUNITY -> (this.tempMagicalImmunityTurns_c7 & 0xff) << 8 | this.tempMagicalImmunity_c6 & 0xff;
+
+      case PHYSICAL_IMMUNITY -> this.physicalImmunity_110 ? 1 : 0;
+      case MAGICAL_IMMUNITY -> this.magicalImmunity_112 ? 1 : 0;
+      case PHYSICAL_RESISTANCE -> this.physicalResistance_114 ? 1 : 0;
+      case MAGICAL_RESISTANCE -> this.magicalResistance_116 ? 1 : 0;
+
+      case _159 -> this._142;
+
+      case CURRENT_ANIMATION_LENGTH -> this.model_148.totalFrames_9a / 2;
+
+      default -> throw new IllegalArgumentException("Some other stat that I haven't implemented " + statIndex);
+    });
+  }
+
+  @Deprecated
+  public void setStat(final BattleEntityStat statIndex, final int value) {
+    switch(statIndex) {
+      case CURRENT_HP -> this.stats.getStat(LodMod.HP_STAT.get()).setCurrent(value);
+
+      case STATUS -> this.status_0e = value;
+
+      case SPECIAL_EFFECT_FLAGS -> this.specialEffectFlag_14 = value;
+//      case EQUIPMENT_EQUIPABLE_FLAGS -> this.equipmentEquipableFlags_1a = value;
+
+      case EQUIPMENT_ELEMENTAL_RESISTANCE -> this.equipmentElementalResistance_20.unpack(value);
+      case EQUIPMENT_ELEMENTAL_IMMUNITY -> this.equipmentElementalImmunity_22.unpack(value);
+      case EQUIPMENT_STATUS_RESIST -> this.equipmentStatusResist_24 = value;
+      case EQUIPMENT_ATTACK -> this.equipmentAttack1_28 = value;
+
+      case ATTACK -> this.stats.getStat(LodMod.ATTACK_STAT.get()).setRaw(value);
+      case MAGIC_ATTACK -> this.stats.getStat(LodMod.MAGIC_ATTACK_STAT.get()).setRaw(value);
+      case DEFENCE -> this.stats.getStat(LodMod.DEFENSE_STAT.get()).setRaw(value);
+      case MAGIC_DEFENCE -> this.stats.getStat(LodMod.MAGIC_DEFENSE_STAT.get()).setRaw(value);
+      case ATTACK_HIT -> this.stats.getStat(LodMod.ATTACK_HIT_STAT.get()).setRaw(value);
+      case MAGIC_HIT -> this.stats.getStat(LodMod.MAGIC_HIT_STAT.get()).setRaw(value);
+      case ATTACK_AVOID -> this.stats.getStat(LodMod.ATTACK_AVOID_STAT.get()).setRaw(value);
+      case MAGIC_AVOID -> this.stats.getStat(LodMod.MAGIC_AVOID_STAT.get()).setRaw(value);
+      case ON_HIT_STATUS_CHANCE -> this.onHitStatusChance_44 = value;
+      case EQUIPMENT_ON_HIT_STATUS -> this.equipmentOnHitStatus_4a = value;
+      case TURN_VALUE -> this.turnValue_4c = value;
+      case SPELL_ID -> this.setActiveSpell(value);
+
+      case GUARD -> this.guard_54 = value;
+
+      case HIT_COUNTER_FRAME_THRESHOLD -> this.hitCounterFrameThreshold_7e = value;
+      case _62 -> this._80 = value;
+      case _63 -> this._82 = value;
+      case MIDDLE_OFFSET_X -> this.middleOffsetX_84 = value;
+      case MIDDLE_OFFSET_Y -> this.middleOffsetY_86 = value;
+
+      case POWER_ATTACK -> {
+        this.powerAttack_b4 = (byte)value;
+        this.powerAttackTurns_b5 = value >>> 8 & 0xff;
+      }
+      case POWER_MAGIC_ATTACK -> {
+        this.powerMagicAttack_b6 = (byte)value;
+        this.powerMagicAttackTurns_b7 = value >>> 8 & 0xff;
+      }
+      case POWER_DEFENCE -> {
+        this.powerDefence_b8 = (byte)value;
+        this.powerDefenceTurns_b9 = value >>> 8 & 0xff;
+      }
+      case POWER_MAGIC_DEFENCE -> {
+        this.powerMagicDefence_ba = (byte)value;
+        this.powerMagicDefenceTurns_bb = value >>> 8 & 0xff;
+      }
+      case TEMP_ATTACK_HIT -> {
+        this.tempAttackHit_bc = value & 0xff;
+        this.tempAttackHitTurns_bd = value >>> 8 & 0xff;
+      }
+      case TEMP_MAGIC_HIT -> {
+        this.tempMagicHit_be = value & 0xff;
+        this.tempMagicHitTurns_bf = value >>> 8 & 0xff;
+      }
+      case TEMP_ATTACK_AVOID -> {
+        this.tempAttackAvoid_c0 = value & 0xff;
+        this.tempAttackAvoidTurns_c1 = value >>> 8 & 0xff;
+      }
+      case TEMP_MAGIC_AVOID -> {
+        this.tempMagicAvoid_c2 = value & 0xff;
+        this.tempMagicAvoidTurns_c3 = value >>> 8 & 0xff;
+      }
+      case TEMP_PHYSICAL_IMMUNITY -> {
+        this.tempPhysicalImmunity_c4 = value & 0xff;
+        this.tempPhysicalImmunityTurns_c5 = value >>> 8 & 0xff;
+      }
+      case TEMP_MAGICAL_IMMUNITY -> {
+        this.tempMagicalImmunity_c6 = value & 0xff;
+        this.tempMagicalImmunityTurns_c7 = value >>> 8 & 0xff;
+      }
+
+      case PHYSICAL_IMMUNITY -> this.physicalImmunity_110 = value != 0;
+      case MAGICAL_IMMUNITY -> this.magicalImmunity_112 = value != 0;
+      case PHYSICAL_RESISTANCE -> this.physicalResistance_114 = value != 0;
+      case MAGICAL_RESISTANCE -> this.magicalResistance_116 = value != 0;
+
+      case _159 -> this._142 = value;
+
+      default -> throw new IllegalArgumentException("Some other stat that I haven't implemented " + statIndex);
+    }
+  }
+
+  @Deprecated
+  public void setStat(final BattleEntityStat statIndex, final RegistryId value) {
+    switch(statIndex) {
+      case SPELL_ID -> this.spell_94 = EVENTS.postEvent(new ActiveSpellEvent(this, value, REGISTRIES.spells.getEntry(value).get())).spell;
+      case ITEM_ID -> this.item_d4 = EVENTS.postEvent(new ActiveItemEvent(this, value, new ItemStack(REGISTRIES.items.getEntry(value).get()))).item;
+
+      default -> throw new IllegalArgumentException("Some other stat that I haven't implemented " + statIndex);
+    }
+  }
+
+  @Override
+  public Vector3f getPosition() {
+    return this.model_148.coord2_14.coord.transfer;
+  }
+
+  @Override
+  public Vector3f getRotation() {
+    return this.model_148.coord2_14.transforms.rotate;
+  }
+
+  @Override
+  public Vector3f getScale() {
+    return this.model_148.coord2_14.transforms.scale;
+  }
+
+  @Override
+  public Vector3i getColour() {
+    return this.colour; // defaultEffectColour_800fb94c;
+  }
+
+  @Method(0x800cae50L)
+  public void bentLoadingTicker(final ScriptState<? extends BattleEntity27c> state, final BattleEntity27c bent) {
+    this._278 = 0;
+
+    final int v1;
+    if(state.hasFlag(FLAG_MONSTER)) {
+      v1 = battleFlags_800bc960 & 0x110;
+    } else {
+      //LAB_800cae94
+      v1 = battleFlags_800bc960 & 0x210;
+    }
+
+    //LAB_800cae98
+    if(v1 != 0) {
+      if(this.combatant_144.isModelLoaded()) {
+        if(this.combatant_144.vramSlot_1a0 >= 0) {
+          this.model_148.uvAdjustments_9d = vramSlots_8005027c[vramSlotIndices_800fa730[this.combatant_144.vramSlot_1a0]];
+        } else {
+          this.model_148.uvAdjustments_9d = vramSlots_8005027c[1];
+        }
+
+        this.loadingAnimIndex_26e = 0;
+        loadCombatantModelAndAnimation(this.battle, this, this.combatant_144);
+        this._278 = 1;
+        this.currentAnimIndex_270 = -1;
+
+        if(!state.hasFlag(FLAG_NO_SCRIPT)) {
+          //LAB_800caf20
+          state.loadScriptFile(this.getScript());
+        }
+
+        //LAB_800caf2c
+        state.setTicker(this::bentLoadedTicker);
+      }
+    }
+
+    //LAB_800caf38
+  }
+
+  protected abstract ScriptFile getScript();
+
+  @Method(0x800caf2cL)
+  private void bentLoadedTicker(final ScriptState<? extends BattleEntity27c> state, final BattleEntity27c bent) {
+    state.setRenderer(this::bentRenderer);
+    state.setTicker(this::bentTicker);
+    this.bentTicker(state, this);
+  }
+
+  @Method(0x800cafb4L)
+  protected void bentTicker(final ScriptState<? extends BattleEntity27c> state, final BattleEntity27c bent) {
+    if(!state.hasAnyFlag(FLAG_MONSTER_SUB_PART | FLAG_HIDE | FLAG_1)) {
+      applyModelRotationAndScale(this.model_148);
+
+      if(!state.hasFlag(FLAG_ANIMATE_ONCE) || this.model_148.remainingFrames_9e != 0) {
+        //LAB_800cb004
+        animateModel(this.model_148);
+      }
+    }
+
+    //LAB_800cb00c
+  }
+
+  @Method(0x800cb024L)
+  protected void bentRenderer(final ScriptState<? extends BattleEntity27c> state, final BattleEntity27c bent) {
+    if(!state.hasAnyFlag(FLAG_MONSTER_SUB_PART | FLAG_HIDE | FLAG_1)) {
+      this.renderBttlModel(this.model_148, bent.combatant_144);
+    }
+
+    //LAB_800cb048
+  }
+
+  @Method(0x800cb058L)
+  public void bentDestructor(final ScriptState<? extends BattleEntity27c> state, final BattleEntity27c bent) {
+    //LAB_800cb088
+    FUN_800ca194(this.combatant_144.assets_14[this.loadingAnimIndex_26e]);
+
+    //LAB_800cb11c
+    if(state.hasFlag(FLAG_MONSTER)) {
+      battleState_8006e398.removeMonster((MonsterBattleEntity)this);
+    } else if(this.typeBentSlot_276 != -1) {
+      battleState_8006e398.removePlayer((PlayerBattleEntity)this);
+    } else {
+      battleState_8006e398.removeGenericBent(this);
+    }
+
+    this.model_148.deleteModelParts();
+
+    //LAB_800cb23c
+  }
+
+  private final MV lw = new MV();
+  private final MV ls = new MV();
+
+  @Method(0x800ec974L)
+  private void renderBttlModel(final Model124 model, final CombatantStruct1a8 combatant) {
+    if(combatant.vramSlot_1a0 == -1 && combatant.texture == null) {
+      // This isn't the dumbest thing I've ever done, but it's up there
+      combatant.texture = new Gpu();
+
+      final Rect4i combatantTimRect = combatantTimRects_800fa6e0[1];
+      combatant.texture.uploadData15(combatantTimRect, combatant.tim.getImageData());
+
+      if(combatant.tim.hasClut()) {
+        final Rect4i clutRect = combatant.tim.getClutRect();
+        clutRect.x = combatantTimRect.x;
+        clutRect.y = combatantTimRect.y + 240;
+
+        //LAB_800ca884
+        combatant.texture.uploadData15(clutRect, combatant.tim.getClutData());
+      }
+
+      combatant.texture.initVram();
+      combatant.texture.updateVramTexture();
+    }
+
+    tmdGp0Tpage_1f8003ec = model.tpage_108;
+    zOffset_1f8003e8 = model.zOffset_a0;
+
+    //LAB_800ec9d0
+    for(int i = 0; i < model.modelParts_00.length; i++) {
+      if((model.partInvisible_f4 & 1L << i) == 0) {
+        final ModelPart10 part = model.modelParts_00[i];
+
+        GsGetLws(part.coord2_04, this.lw, this.ls);
+        GsSetLightMatrix(this.lw);
+        GTE.setTransforms(this.ls);
+        Renderer.renderDobj2(part, true, 0);
+
+        final QueuedModelBattleTmd queue = RENDERER.queueModel(model.modelParts_00[i].tmd_08.getObj(), this.lw, QueuedModelBattleTmd.class)
+          .depthOffset(model.zOffset_a0 * 4)
+          .usePs1Depth(model.usePs1Depth)
+          .lightDirection(lightDirectionMatrix_800c34e8)
+          .lightColour(lightColourMatrix_800c3508)
+          .backgroundColour(GTE.backgroundColour)
+          .ctmdFlags((part.attribute_00 & 0x4000_0000) != 0 ? 0x12 : 0x0)
+          .tmdTranslucency(tmdGp0Tpage_1f8003ec >>> 5 & 0b11)
+          .battleColour(((Battle)currentEngineState_8004dd04)._800c6930.colour_00);
+
+        if(this.useScissor) {
+          queue.scissor(this.scissor);
+        }
+
+        if(combatant.texture != null) {
+          queue.texture(combatant.texture.vramTexture15, 1);
+        }
+      }
+    }
+
+    //LAB_800eca58
+    if(model.shadowType_cc != 0) {
+      renderBttlShadow(model);
+    }
+
+    //LAB_800eca70
+  }
+
+  @Method(0x800f9e10L)
+  public void clearTempWeaponAndSpellStats() {
+    this.item_d4 = null;
+    this.spell_94 = null;
+  }
+
+  @Method(0x800f7a74L)
+  public void setActiveItem(final ItemStack item) {
+    //LAB_800f7a98
+    this.item_d4 = item;
+  }
+
+  @Method(0x800f9e50L)
+  public void setActiveSpell(final int spellId) {
+    final RegistryDelegate<SpellStats0c> spell = REGISTRIES.spells.getEntry(LodMod.id(LodMod.SPELL_IDS[spellId]));
+    this.spell_94 = EVENTS.postEvent(new ActiveSpellEvent(this, spell.getId(), spell.get())).spell;
+  }
+}

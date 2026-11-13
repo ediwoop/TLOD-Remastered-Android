@@ -1,0 +1,369 @@
+package legend.game.inventory.screens.controls;
+
+import legend.core.GameEngine;
+import legend.core.MathHelper;
+import legend.core.font.Font;
+import legend.core.lang.TextComponent;
+import legend.core.platform.input.InputAction;
+import legend.core.platform.input.InputMod;
+import legend.game.inventory.screens.Control;
+import legend.game.inventory.screens.FontOptions;
+import legend.game.inventory.screens.InputPropagation;
+import legend.game.inventory.screens.MenuScreen;
+import legend.game.inventory.screens.TextColour;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
+import static legend.game.Text.renderText;
+import static legend.game.Text.textZ_800bdf00;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_CONFIRM;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_DOWN;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_UP;
+import static legend.game.sound.Audio.playMenuSound;
+
+public class Dropdown<T> extends Control {
+  private final Panel background;
+  private final Glyph downArrow;
+
+  /** Allows list wrapping, but only on new input */
+  private boolean allowWrapY = true;
+
+  private final List<T> options = new ArrayList<>();
+  private final EntryToTextComponent<T> toString;
+  private int hoverIndex = -1;
+  private int selectedIndex = -1;
+  private Font font = GameEngine.DEFAULT_FONT;
+  private final FontOptions fontOptions = new FontOptions().colour(TextColour.BROWN).shadowColour(TextColour.MIDDLE_BROWN);
+
+  public Dropdown(final EntryToTextComponent<T> toString) {
+    this.toString = toString;
+    this.background = this.addControl(Panel.subtle());
+
+    this.downArrow = this.addControl(Glyph.blueSpinnerDown());
+    this.downArrow.ignoreInput();
+    this.downArrow.setZ(this.background.getZ() - 1);
+
+    this.setSize(100, 16);
+  }
+
+  @Override
+  public void setZ(final int z) {
+    super.setZ(z);
+    this.background.setZ(z);
+    this.downArrow.setZ(z - 1);
+  }
+
+  public void setFont(final Font font) {
+    this.font = font;
+  }
+
+  public Font getFont() {
+    return this.font;
+  }
+
+  public void clearOptions() {
+    this.options.clear();
+    this.selectedIndex = -1;
+  }
+
+  public int getOptionCount() {
+    return this.options.size();
+  }
+
+  public T getOption(final int index) {
+    return this.options.get(index);
+  }
+
+  public void addOption(final T option) {
+    this.options.add(option);
+
+    if(this.selectedIndex == -1) {
+      this.setSelectedIndex(0);
+    }
+  }
+
+  public void removeOption(final T option) {
+    this.options.remove(option);
+    this.setSelectedIndex(this.selectedIndex);
+  }
+
+  public void removeOption(final int index) {
+    this.options.remove(index);
+    this.setSelectedIndex(this.selectedIndex);
+  }
+
+  public void setOption(final int index, final T option) {
+    this.options.set(index, option);
+  }
+
+  public void setSelectedIndex(final int index) {
+    if(index < 0) {
+      this.selectedIndex = -1;
+      return;
+    }
+
+    if(index >= this.options.size()) {
+      this.selectedIndex = this.options.size() - 1;
+      return;
+    }
+
+    this.selectedIndex = index;
+  }
+
+  public void setSelected(final T option) {
+    this.selectedIndex = this.options.indexOf(option);
+  }
+
+  public int getSelectedIndex() {
+    return this.selectedIndex;
+  }
+
+  public T getSelectedOption() {
+    if(this.selectedIndex == -1) {
+      return null;
+    }
+
+    return this.options.get(this.selectedIndex);
+  }
+
+  public int size() {
+    return this.options.size();
+  }
+
+  @Override
+  public void setScale(final float scale) {
+    super.setScale(scale);
+    this.fontOptions.size(scale);
+    this.downArrow.setScale(scale);
+    this.downArrow.setPos(this.getWidth() - 1, (this.getHeight() - 17) / 2);
+  }
+
+  @Override
+  protected void onResize() {
+    super.onResize();
+    this.background.setSize(this.getWidth(), this.getHeight());
+    this.downArrow.setPos(this.getWidth() - 1, (this.getHeight() - 17) / 2);
+  }
+
+  @Override
+  protected InputPropagation mouseClick(final double x, final double y, final int button, final Set<InputMod> mods) {
+    if(super.mouseClick(x, y, button, mods) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    playMenuSound(2);
+    this.showDropdown();
+    return InputPropagation.HANDLED;
+  }
+
+  private void showDropdown() {
+    this.getScreen().getStack().pushScreen(new DropdownScreen());
+  }
+
+  private void select(final int index) {
+    playMenuSound(2);
+    this.setSelectedIndex(index);
+
+    if(this.selectionHandler != null) {
+      this.selectionHandler.selection(index);
+    }
+  }
+
+  @Override
+  protected InputPropagation inputActionPressed(final InputAction action, final boolean repeat) {
+    if(super.inputActionPressed(action, repeat) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(action == INPUT_ACTION_MENU_CONFIRM.get() && !repeat) {
+      playMenuSound(2);
+      this.showDropdown();
+      return InputPropagation.HANDLED;
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  @Override
+  protected void render(final int x, final int y) {
+    if(this.selectedIndex != -1) {
+      final TextComponent textComponent = this.toString.toTextComponent(this.selectedIndex, this.options.get(this.selectedIndex));
+      final String text = textComponent.get();
+
+      final int oldZ = textZ_800bdf00;
+      textZ_800bdf00 = this.background.getZ() - 1;
+      renderText(text, x + 4, y + (this.getHeight() - this.font.textHeight(text) * this.getScale()) / 2 + 0.5f, this.fontOptions);
+      textZ_800bdf00 = oldZ;
+    }
+  }
+
+  public void onSelection(final Selection handler) {
+    this.selectionHandler = handler;
+  }
+
+  private Selection selectionHandler;
+
+  @FunctionalInterface public interface Selection { void selection(final int index); }
+
+  private class DropdownScreen extends MenuScreen {
+    private final Panel panel;
+    private final Brackets highlight;
+
+    private DropdownScreen() {
+      this.panel = this.addControl(Panel.panel());
+      this.panel.setZ(10);
+
+      this.highlight = this.panel.addControl(new Brackets());
+      this.highlight.setPos(6, 8);
+      this.highlight.setZ(this.panel.getZ() - 2);
+      this.highlight.setHeight((int)(16 * Dropdown.this.getScale()));
+
+      this.panel.onMouseMove((x, y) -> {
+        for(int i = 0; i < Dropdown.this.options.size(); i++) {
+          if(MathHelper.inBox((int)x, (int)y, 6, (int)(10 + i * 16 * Dropdown.this.getScale()), Dropdown.this.getWidth(), (int)(16 * Dropdown.this.getScale()))) {
+            this.hover(i);
+            return InputPropagation.HANDLED;
+          }
+        }
+
+        return InputPropagation.PROPAGATE;
+      });
+
+      this.panel.onMouseClick((x, y, button, mods) -> {
+        for(int i = 0; i < Dropdown.this.options.size(); i++) {
+          if(MathHelper.inBox((int)x, (int)y, 6, (int)(10 + i * 16 * Dropdown.this.getScale()), Dropdown.this.getWidth(), (int)(16 * Dropdown.this.getScale()))) {
+            Dropdown.this.select(i);
+            this.panel.getScreen().getStack().popScreen();
+            return InputPropagation.HANDLED;
+          }
+        }
+
+        return InputPropagation.PROPAGATE;
+      });
+
+      this.panel.setHeight((int)(17 + Dropdown.this.options.size() * 16 * Dropdown.this.getScale()));
+      this.panel.setPos(Dropdown.this.calculateTotalX() - 6, Dropdown.this.calculateTotalY() + Dropdown.this.getHeight());
+
+      if(this.panel.getY() + this.panel.getHeight() > this.getHeight()) {
+        this.panel.setY(Dropdown.this.calculateTotalY() - this.panel.getHeight());
+      }
+
+      if(this.panel.getY() < 0) {
+        this.panel.setY(0);
+      }
+
+      this.panel.setWidth(Dropdown.this.getWidth() + 12);
+      this.highlight.setWidth(Dropdown.this.getWidth());
+
+      this.hover(Dropdown.this.selectedIndex);
+    }
+
+    private void hover(final int index) {
+      if(index == -1) {
+        this.highlight.hide();
+      } else {
+        if(Dropdown.this.hoverIndex != -1 && Dropdown.this.hoverIndex != index) {
+          playMenuSound(1);
+        }
+
+        this.highlight.show();
+      }
+
+      Dropdown.this.hoverIndex = index;
+      this.highlight.setY((int)(8 + index * 16 * Dropdown.this.getScale()));
+    }
+
+    @Override
+    protected void render() {
+      final int oldZ = textZ_800bdf00;
+      textZ_800bdf00 = this.panel.getZ() - 1;
+
+      for(int i = 0; i < Dropdown.this.options.size(); i++) {
+        renderText(Dropdown.this.toString.toTextComponent(i, Dropdown.this.options.get(i)).get(), this.panel.getX() + 10, this.panel.getY() + 10 + i * 16 * Dropdown.this.getScale() - 1, Dropdown.this.fontOptions);
+      }
+
+      textZ_800bdf00 = oldZ;
+    }
+
+    @Override
+    protected InputPropagation mouseClick(final double x, final double y, final int button, final Set<InputMod> mods) {
+      if(super.mouseClick(x, y, button, mods) == InputPropagation.HANDLED) {
+        return InputPropagation.HANDLED;
+      }
+
+      playMenuSound(3);
+      this.getStack().popScreen();
+      return InputPropagation.HANDLED;
+    }
+
+    @Override
+    protected InputPropagation inputActionPressed(final InputAction action, final boolean repeat) {
+      if(super.inputActionPressed(action, repeat) == InputPropagation.HANDLED) {
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_UP.get()) {
+        final int optionCount = Dropdown.this.options.size();
+        if(Dropdown.this.hoverIndex != 0) {
+          this.hover(Dropdown.this.hoverIndex - 1);
+        } else if(optionCount > 1 && Dropdown.this.allowWrapY) {
+          this.hover(optionCount - 1);
+        }
+        Dropdown.this.allowWrapY = false;
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_DOWN.get()) {
+        final int optionCount = Dropdown.this.options.size();
+        if(Dropdown.this.hoverIndex != optionCount - 1) {
+          this.hover(Dropdown.this.hoverIndex + 1);
+        } else if(optionCount > 1 && Dropdown.this.allowWrapY) {
+          this.hover(0);
+        }
+        Dropdown.this.allowWrapY = false;
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_CONFIRM.get() && !repeat) {
+        Dropdown.this.select(Dropdown.this.hoverIndex);
+        this.getStack().popScreen();
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_BACK.get() && !repeat) {
+        playMenuSound(3);
+        this.getStack().popScreen();
+        return InputPropagation.HANDLED;
+      }
+
+      return InputPropagation.PROPAGATE;
+    }
+
+    @Override
+    protected InputPropagation inputActionReleased(final InputAction action) {
+      if(super.inputActionReleased(action) == InputPropagation.HANDLED) {
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_UP.get() || action == INPUT_ACTION_MENU_DOWN.get()) {
+        Dropdown.this.allowWrapY = true;
+        return InputPropagation.HANDLED;
+      }
+
+      return InputPropagation.PROPAGATE;
+    }
+
+    @Override
+    protected boolean propagateRender() {
+      return true;
+    }
+  }
+
+  @FunctionalInterface
+  public interface EntryToTextComponent<T> {
+    TextComponent toTextComponent(final int index, final T entry);
+  }
+}

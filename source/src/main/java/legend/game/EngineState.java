@@ -1,0 +1,189 @@
+package legend.game;
+
+import de.jcm.discordgamesdk.activity.Activity;
+import legend.core.platform.input.InputAction;
+import legend.core.tags.Tag;
+import legend.game.saves.SavedGame;
+import legend.game.scripting.FlowControl;
+import legend.game.scripting.RunningScript;
+import legend.game.types.CContainer;
+import legend.game.types.GameState52c;
+import legend.game.types.GsRVIEW2;
+import legend.game.types.Model124;
+import org.joml.Math;
+import org.legendofdragoon.modloader.registries.RegistryId;
+
+import javax.annotation.Nullable;
+import java.util.function.Function;
+
+import static legend.core.GameEngine.PLATFORM;
+import static legend.game.SItem.chapterNames_80114248;
+import static legend.game.SItem.worldMapNames_8011c1ec;
+import static legend.game.Scus94491BpeSegment_800b.continentIndex_800bf0b0;
+import static legend.game.Scus94491BpeSegment_800b.submapId_800bd808;
+import static legend.game.sound.Audio.sssqResetStuff;
+import static legend.lodmod.LodMod.INPUT_ACTION_GENERAL_MOVE_DOWN;
+import static legend.lodmod.LodMod.INPUT_ACTION_GENERAL_MOVE_LEFT;
+import static legend.lodmod.LodMod.INPUT_ACTION_GENERAL_MOVE_RIGHT;
+import static legend.lodmod.LodMod.INPUT_ACTION_GENERAL_MOVE_UP;
+
+public abstract class EngineState<T extends EngineState<T>> {
+  public final EngineStateType<T> type;
+
+  private float analogueAngle;
+  private float analogueMagnitude;
+
+  protected EngineState(final EngineStateType<T> type) {
+    this.type = type;
+  }
+
+  public boolean is(final EngineStateType<?> type) {
+    return this.type == type;
+  }
+
+  public boolean is(final RegistryId type) {
+    return this.type.getRegistryId().equals(type);
+  }
+
+  public abstract Tag writeSaveData(final GameState52c gameState);
+  public abstract void readSaveData(final GameState52c gameState, @Nullable final Tag tag);
+
+  public void init() {
+    sssqResetStuff();
+    submapId_800bd808 = -1;
+  }
+
+  public void destroy() {
+
+  }
+
+  /** Runs before scripts are ticked */
+  public void tick() {
+    final float up = PLATFORM.getAxis(INPUT_ACTION_GENERAL_MOVE_UP.get());
+    final float down = PLATFORM.getAxis(INPUT_ACTION_GENERAL_MOVE_DOWN.get());
+    final float left = PLATFORM.getAxis(INPUT_ACTION_GENERAL_MOVE_LEFT.get());
+    final float right = PLATFORM.getAxis(INPUT_ACTION_GENERAL_MOVE_RIGHT.get());
+    final float x = left + right;
+    final float y = up + down;
+
+    if(x == 0.0f && y == 0.0f) {
+      this.analogueMagnitude = 0.0f;
+      return;
+    }
+
+    this.analogueMagnitude = Math.min(1.0f, Math.sqrt(x * x + y * y));
+    this.analogueAngle = Math.atan2(y, x);
+  }
+
+  /** Runs after scripts are ticked */
+  public void postScriptTick(final boolean scriptsTicked) {
+
+  }
+
+  /** Runs after everything else is rendered */
+  public void overlayTick() {
+
+  }
+
+  /** The amount we've multiplied this engine state's frame rate by (e.g. world map was 20FPS, we multiplied it by 3 to bring it to 60FPS) */
+  public int tickMultiplier() {
+    return 2;
+  }
+
+  public void menuClosed() {
+
+  }
+
+  public boolean advancesTime() {
+    return true;
+  }
+
+  public void restoreMusicAfterMenu() {
+
+  }
+
+  public Function<RunningScript, FlowControl>[] getScriptFunctions() {
+    return null;
+  }
+
+  public void modelLoaded(final Model124 model, final CContainer cContainer) {
+
+  }
+
+  public boolean renderTextOnTopOfAllBoxes() {
+    return true;
+  }
+
+  public RenderMode getRenderMode() {
+    return RenderMode.PERSPECTIVE;
+  }
+
+  public void inputActionPressed(final InputAction action, final boolean repeat) {
+
+  }
+
+  public void inputActionReleased(final InputAction action) {
+
+  }
+
+  public int getInputsPressed() {
+    return 0;
+  }
+
+  public int getInputsRepeat() {
+    return 0;
+  }
+
+  public int getInputsHeld() {
+    return 0;
+  }
+
+  public float getAnalogueAngle() {
+    return this.analogueAngle;
+  }
+
+  public float getAnalogueMagnitude() {
+    return this.analogueMagnitude;
+  }
+
+  public void loadSaveFromMenu(final SavedGame save) {
+    throw new RuntimeException("Not implemented");
+  }
+
+  /**
+   * Return true if the "save" option in the in-game menu should be enabled
+   */
+  public boolean canSave() {
+    return false;
+  }
+
+  public void updateDiscordRichPresence(final GameState52c gameState, final Activity activity) {
+    activity.setDetails(this.getChapter(gameState) + " - " + this.getLocation(gameState));
+    activity.setState(null);
+  }
+
+  public String getChapter(final GameState52c gameState) {
+    if(gameState != null && gameState.chapterIndex_98 > -1 && gameState.chapterIndex_98 < chapterNames_80114248.length) {
+      return chapterNames_80114248[gameState.chapterIndex_98];
+    }
+
+    return "Unknown Chapter";
+  }
+
+  public String getLocation(final GameState52c gameState) {
+    if(continentIndex_800bf0b0 > -1 && continentIndex_800bf0b0 < worldMapNames_8011c1ec.length) {
+      return worldMapNames_8011c1ec[continentIndex_800bf0b0];
+    }
+
+    return "Unknown Location";
+  }
+
+  public abstract GsRVIEW2 getCamera();
+
+  public enum RenderMode {
+    /** Used by submaps and title screen, pseudo-perspective using orthographic projection with H division */
+    LEGACY,
+    /** True perspective */
+    PERSPECTIVE,
+  }
+}

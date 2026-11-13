@@ -1,0 +1,273 @@
+package legend.game.inventory.screens.controls;
+
+import legend.core.font.Font;
+import legend.core.lang.RawText;
+import legend.core.lang.TextComponent;
+import legend.core.platform.input.InputAction;
+import legend.core.platform.input.InputMod;
+import legend.game.inventory.screens.Control;
+import legend.game.inventory.screens.HorizontalAlign;
+import legend.game.inventory.screens.InputPropagation;
+
+import java.util.Locale;
+import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+
+import static legend.core.GameEngine.PLATFORM;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_CONFIRM;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_DOWN;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_LEFT;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_RIGHT;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_UP;
+import static legend.game.sound.Audio.playMenuSound;
+
+public class NumberSpinner<T extends Number> extends Control {
+  private final Glyph upArrow;
+  private final Glyph downArrow;
+  private final Brackets highlight;
+  private final Label label;
+  private int labelRightPadding;
+
+  private T number;
+  private T step;
+  private T bigStep;
+  private final BiFunction<T, T, T> add;
+  private final BiFunction<T, T, T> subtract;
+  private final BiFunction<T, Integer, T> scroll;
+  private final Function<T, T> clamp;
+  private final Function<T, TextComponent> toString;
+
+  public static NumberSpinner<Integer> intSpinner(final int number, final int min, final int max) {
+    return new NumberSpinner<>(number, 1, 5, Integer::sum, (a, b) -> a - b, Integer::sum, num -> Math.clamp(num, min, max));
+  }
+
+  public static NumberSpinner<Float> floatSpinner(final float number, final float step, final float min, final float max) {
+    return new NumberSpinner<>(number, step, step * 5, Float::sum, (a, b) -> a - b, (num, s) -> num + s * step, num -> Math.clamp(num, min, max), num -> new RawText(String.format(Locale.US, "%.2f", num)));
+  }
+
+  public static NumberSpinner<Float> floatSpinner(final float number, final float step, final float bigStep, final float min, final float max) {
+    return new NumberSpinner<>(number, step, bigStep, Float::sum, (a, b) -> a - b, (num, s) -> num + s * step, num -> Math.clamp(num, min, max), num -> new RawText(String.format(Locale.US, "%.2f", num)));
+  }
+
+  public static NumberSpinner<Float> percentSpinner(final float number, final float step, final float bigStep, final float min, final float max) {
+    return new NumberSpinner<>(number, step, bigStep, Float::sum, (a, b) -> a - b, (num, s) -> num + s * step, num -> Math.clamp(num, min, max), num -> new RawText(Math.round(num * 100) + "%"));
+  }
+
+  public NumberSpinner(final T number, final T step, final T bigStep, final BiFunction<T, T, T> add, final BiFunction<T, T, T> subtract, final BiFunction<T, Integer, T> scroll, final Function<T, T> clamp) {
+    this(number, step, bigStep, add, subtract, scroll, clamp, t -> new RawText(t.toString()));
+  }
+
+  public NumberSpinner(final T number, final T step, final T bigStep, final BiFunction<T, T, T> add, final BiFunction<T, T, T> subtract, final BiFunction<T, Integer, T> scroll, final Function<T, T> clamp, final Function<T, TextComponent> toString) {
+    this.label = this.addControl(new Label(RawText.BLANK));
+    this.label.setVerticalAlign(Label.VerticalAlign.CENTRE);
+    this.label.getFontOptions().horizontalAlign(HorizontalAlign.CENTRE);
+    this.label.ignoreInput();
+
+    this.upArrow = this.addControl(Glyph.blueSpinnerUp());
+    this.upArrow.ignoreInput();
+
+    this.downArrow = this.addControl(Glyph.blueSpinnerDown());
+    this.downArrow.ignoreInput();
+
+    this.highlight = this.addControl(new Brackets());
+    this.highlight.setHeight(16);
+    this.highlight.ignoreInput();
+    this.hideHighlight();
+
+    this.add = add;
+    this.subtract = subtract;
+    this.scroll = scroll;
+    this.clamp = clamp;
+    this.toString = toString;
+
+    this.setNumber(number);
+    this.setStep(step, bigStep);
+  }
+
+  @Override
+  public void setZ(final int z) {
+    super.setZ(z);
+
+    this.label.setZ(z);
+    this.upArrow.setZ(z);
+    this.downArrow.setZ(z);
+    this.highlight.setZ(z - 1);
+  }
+
+  public void setFont(final Font font) {
+    this.label.setFont(font);
+    this.updateLabelLayout();
+  }
+
+  public Font getFont() {
+    return this.label.getFont();
+  }
+
+  public void setNumber(final T number) {
+    this.number = this.clamp.apply(number);
+    this.label.setText(this.toString.apply(this.number));
+    this.updateLabelLayout();
+
+    if(this.changeHandler != null) {
+      this.changeHandler.change(this.number);
+    }
+  }
+
+  public T getNumber() {
+    return this.number;
+  }
+
+  public void setLabelRightPadding(final int padding) {
+    this.labelRightPadding = Math.max(0, padding);
+    this.updateLabelLayout();
+  }
+
+  public void setStep(final T step, final T bigStep) {
+    this.step = step;
+    this.bigStep = bigStep;
+  }
+
+  public T getStep() {
+    return this.step;
+  }
+
+  public T getBigStep() {
+    return this.bigStep;
+  }
+
+  public void showHighlight() {
+    this.highlight.show();
+  }
+
+  public void hideHighlight() {
+    this.highlight.hide();
+  }
+
+  public boolean isHighlightVisible() {
+    return this.highlight.isVisible();
+  }
+
+  @Override
+  public void setScale(final float scale) {
+    super.setScale(scale);
+    this.label.setScale(scale);
+    this.upArrow.setScale(scale);
+    this.upArrow.setPos((int)(this.getWidth() - 10 * this.getScale()), (this.getHeight() - 17) / 2);
+    this.downArrow.setScale(scale);
+    this.downArrow.setPos(this.getWidth() - 1, (this.getHeight() - 17) / 2);
+    this.updateLabelLayout();
+  }
+
+  @Override
+  protected void onResize() {
+    super.onResize();
+    this.upArrow.setPos((int)(this.getWidth() - 10 * this.getScale()), (this.getHeight() - 17) / 2);
+    this.downArrow.setPos(this.getWidth() - 1, (this.getHeight() - 17) / 2);
+    this.highlight.setHeight(this.getHeight());
+    this.updateLabelLayout();
+  }
+
+  private void updateLabelLayout() {
+    final int labelWidth = Math.max(0, this.getWidth() - this.labelRightPadding);
+    final int highlightWidth = (int)((this.getFont().textWidth(this.label.getText().get()) + 14) * this.getScale());
+    final int displayedHighlightWidth = this.labelRightPadding == 0 ? highlightWidth : Math.min(highlightWidth, labelWidth);
+
+    this.label.setSize(labelWidth, this.getHeight());
+    this.highlight.setWidth(displayedHighlightWidth);
+    this.highlight.setX((labelWidth - this.highlight.getWidth()) / 2 + 1);
+  }
+
+  @Override
+  protected void lostFocus() {
+    super.lostFocus();
+    this.hideHighlight();
+  }
+
+  @Override
+  protected InputPropagation mouseScroll(final int deltaX, final int deltaY) {
+    if(super.mouseScroll(deltaX, deltaY) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(this.highlight.isVisible()) {
+      this.setNumber(this.scroll.apply(this.number, deltaY));
+      playMenuSound(1);
+      return InputPropagation.HANDLED;
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  @Override
+  protected InputPropagation mouseClick(final double x, final double y, final int button, final Set<InputMod> mods) {
+    if(super.mouseClick(x, y, button, mods) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(button == PLATFORM.getMouseButton(0) && mods.isEmpty() && !this.highlight.isVisible()) {
+      playMenuSound(2);
+      this.showHighlight();
+    }
+
+    return InputPropagation.HANDLED;
+  }
+
+  @Override
+  protected InputPropagation inputActionPressed(final InputAction action, final boolean repeat) {
+    if(super.inputActionPressed(action, repeat) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(this.highlight.isVisible()) {
+      if(action == INPUT_ACTION_MENU_UP.get()) {
+        this.setNumber(this.add.apply(this.number, this.step));
+        playMenuSound(1);
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_DOWN.get()) {
+        this.setNumber(this.subtract.apply(this.number, this.step));
+        playMenuSound(1);
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_RIGHT.get()) {
+        this.setNumber(this.add.apply(this.number, this.bigStep));
+        playMenuSound(1);
+        return InputPropagation.HANDLED;
+      }
+
+      if(action == INPUT_ACTION_MENU_LEFT.get()) {
+        this.setNumber(this.subtract.apply(this.number, this.bigStep));
+        playMenuSound(1);
+        return InputPropagation.HANDLED;
+      }
+
+      if((action == INPUT_ACTION_MENU_CONFIRM.get() || action == INPUT_ACTION_MENU_BACK.get()) && !repeat) {
+        playMenuSound(2);
+        this.hideHighlight();
+        return InputPropagation.HANDLED;
+      }
+    } else if(action == INPUT_ACTION_MENU_CONFIRM.get() && !repeat) {
+      playMenuSound(2);
+      this.showHighlight();
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  @Override
+  protected void render(final int x, final int y) {
+
+  }
+
+  public void onChange(final Change<T> change) {
+    this.changeHandler = change;
+  }
+
+  private Change<T> changeHandler;
+
+  @FunctionalInterface public interface Change<T extends Number> { void change(final T index); }
+}

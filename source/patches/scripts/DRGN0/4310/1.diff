@@ -1,0 +1,33 @@
+--- original
++++ modified
+@@ -162,16 +162,13 @@
+ call 371, stor[28], stor[10], 0x0
+ mov stor[8], var[128 + stor[10]][5]
+ mov 0x3, var[128 + stor[10]][0]
+-call 168, stor[30], stor[8], ITEM_ID
++call 168, stor[30], id[lod:detonate_rock], ITEM_ID
+ mov stor[8], var[45][119]
+-call 496, stor[30]
+ call 508, stor[30], stor[28], stor[9]
+ jmp_cmp ==, 0x0, stor[9], inl[:LABEL_9]
+ call 495, stor[30], stor[28], stor[8], stor[8], stor[10]
+ mov stor[10], var[45][119]
+ jmp_cmp ==, 0x0, stor[8], inl[:LABEL_8]
+-call 169, stor[30], ITEM_PERCENTAGE, stor[10]
+-jmp_cmp !=, 0x0, stor[10], inl[:LABEL_8]
+ call 169, stor[30], STATUS, stor[10]
+ jmp_cmp !&, 0x8, stor[10], inl[:LABEL_8]
+ shr 0x1, stor[8]
+@@ -2352,9 +2349,10 @@
+ LABEL_86:
+ memcpy 0x18, stor[8], inl[:LABEL_84]
+ call 169, stor[30], DLEVEL, stor[8]
++call 890, id[lod_core:config], id[lod:max_dragoon_level], 0, stor[40]
+ jmp_cmp >=, 0x0, stor[8], inl[:LABEL_87]
+-jmp_cmp <, 0x5, stor[8], inl[:LABEL_87]
+-mov inl[:LABEL_85[stor[8]]], stor[8]
++jmp_cmp <, stor[40], stor[8], inl[:LABEL_87]
++call 169, stor[30], ARCHER_SP, stor[8]
+ jmp inl[:LABEL_88]
+ LABEL_87:
+ mov 0x0, stor[8]

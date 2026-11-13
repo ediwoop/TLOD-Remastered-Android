@@ -1,0 +1,35 @@
+package legend.game.inventory.screens;
+
+import legend.core.lang.TextComponent;
+import legend.game.SItem;
+import legend.game.inventory.screens.controls.Background;
+import legend.game.types.MessageBoxResult;
+
+import java.util.function.BiConsumer;
+
+import static legend.core.GameEngine.DEFAULT_FONT;
+import static legend.game.FullScreenEffects.startFadeEffect;
+import static legend.game.Menus.deallocateRenderables;
+import static legend.game.SItem.UI_TEXT;
+import static legend.game.SItem.menuStack;
+
+public class FullScreenInputScreen extends MenuScreen {
+  private final TextComponent prompt;
+
+  public FullScreenInputScreen(final TextComponent prompt, final TextComponent subprompt, final String defaultText, final BiConsumer<MessageBoxResult, String> onResult) {
+    deallocateRenderables(0xff);
+    startFadeEffect(2, 10);
+
+    this.prompt = prompt;
+
+    this.addControl(new Background());
+
+    // Defer so that the screen gets added after this one
+    this.deferAction(() -> menuStack.pushScreen(new InputBoxScreen(subprompt, defaultText, onResult)));
+  }
+
+  @Override
+  protected void render() {
+    SItem.renderMenuCentredText(DEFAULT_FONT, this.prompt.get(), 188, 25, 240, UI_TEXT);
+  }
+}

@@ -1,0 +1,686 @@
+package legend.game.combat.effects;
+
+import legend.core.Config;
+import legend.core.MathHelper;
+import legend.core.renderer.QueuedModelStandard;
+import legend.core.gte.MV;
+import legend.core.memory.Method;
+import legend.core.renderer.Obj;
+import legend.core.renderer.QuadBuilder;
+import legend.core.platform.input.InputAction;
+import legend.core.platform.input.InputCodepoints;
+import legend.game.additions.AdditionHitProperties10;
+import legend.game.additions.AdditionSound;
+import legend.game.combat.AdditionCounterAmount;
+import legend.game.combat.bent.BattleEntity27c;
+import legend.game.combat.ui.AdditionOverlayMode;
+import legend.game.inventory.screens.FontOptions;
+import legend.game.inventory.screens.HorizontalAlign;
+import legend.game.inventory.screens.TextColour;
+import legend.game.modding.coremod.CoreMod;
+import legend.game.scripting.ScriptState;
+import legend.core.renderer.Translucency;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.joml.Math;
+
+import java.util.Arrays;
+
+import static legend.core.GameEngine.CONFIG;
+import static legend.core.GameEngine.GPU;
+import static legend.core.GameEngine.PLATFORM;
+import static legend.core.GameEngine.RENDERER;
+import static legend.core.GameEngine.SCRIPTS;
+import static legend.game.Scus94491BpeSegment.battlePreloadedEntities_1f8003f4;
+import static legend.game.Text.renderText;
+import static legend.game.combat.SEffe.additionBorderColours_800fb7f0;
+import static legend.game.combat.SEffe.additionHitCompletionState_8011a014;
+import static legend.game.combat.SEffe.additionOverlayActive_80119f41;
+import static legend.game.combat.SEffe.renderButtonPressHudElement1;
+import static legend.game.modding.coremod.CoreMod.ADDITION_TIMING_WINDOW_CONFIG;
+import static legend.game.modding.coremod.CoreMod.REDUCE_MOTION_FLASHING_CONFIG;
+import static legend.lodmod.LodMod.INPUT_ACTION_BTTL_ATTACK;
+import static legend.lodmod.LodMod.INPUT_ACTION_BTTL_COUNTER;
+
+public class AdditionOverlaysEffect44 implements Effect<EffectManagerParams.VoidType> {
+  private static final Logger LOGGER = LogManager.getFormatterLogger(AdditionOverlaysEffect44.class);
+  private static final FontOptions UI_WHITE_SHADOWED = new FontOptions().colour(TextColour.WHITE).shadowColour(TextColour.BLACK).horizontalAlign(HorizontalAlign.CENTRE);
+
+  public int attackerScriptIndex_00;
+  public int targetScriptIndex_04;
+
+  /** ubyte */
+  public int count_30;
+  /** ubyte; 0 = renders and ticks, 1 = skips render and tick, 2 = renders only; set by scriptAlterAdditionContinuationState */
+  public int pauseTickerAndRenderer_31;
+  /** byte */
+  public int additionComplete_32;
+
+  /** short */
+  public int currentFrame_34;
+  /** ushort */
+  public int unused_36;
+  /** ubyte */
+  public int numFramesToRenderCenterSquare_38;
+  /** ubyte */
+  public int lastCompletedHit_39;
+  /** ubyte; 0 = no auto complete, 2 = WC and UW auto-complete */
+  public int autoCompleteType_3a;
+
+  // Not needed anymore, just reference hit overlay array at index lastCompletedHit_39
+  // public final Pointer<AdditionOverlaysHit20> lastCompletedHitOverlay_3c;
+  public AdditionOverlaysHit20[] hitOverlays_40;
+
+  public Obj reticleBorderShadow;
+  public final MV transforms = new MV();
+
+  @Method(0x801062a8L)
+  public AdditionOverlaysEffect44(final int attackerScriptIndex, final int targetScriptIndex, final int autoCompleteType) {
+    final BattleEntity27c s5 = SCRIPTS.getObject(attackerScriptIndex, BattleEntity27c.class);
+
+    this.reticleBorderShadow = new QuadBuilder("Reticle background")
+      .translucency(Translucency.B_MINUS_F)
+      .monochrome(0, 0.0f)
+      .monochrome(1, 0.0f)
+      .monochrome(2, 1.0f)
+      .monochrome(3, 1.0f)
+      .pos(-1.0f, -0.5f, 0.0f)
+      .size(1.0f, 1.0f)
+      .build();
+
+    //LAB_8010633c
+    //LAB_80106374
+    final int hitCount = this.getHitCount(s5.typeBentSlot_276, autoCompleteType) - 1;
+    this.count_30 = hitCount;
+    this.attackerScriptIndex_00 = attackerScriptIndex;
+    this.targetScriptIndex_04 = targetScriptIndex;
+    this.currentFrame_34 = 0;
+    this.pauseTickerAndRenderer_31 = 0;
+    this.additionComplete_32 = 0;
+    this.numFramesToRenderCenterSquare_38 = 0;
+    this.lastCompletedHit_39 = 0;
+    this.autoCompleteType_3a = autoCompleteType;
+    final AdditionOverlaysHit20[] hitArray = new AdditionOverlaysHit20[hitCount];
+    Arrays.setAll(hitArray, AdditionOverlaysHit20::new);
+    this.hitOverlays_40 = hitArray;
+    additionHitCompletionState_8011a014 = new byte[hitCount + 1];
+    int overlayDisplayDelay = this.getHitProperty(s5.typeBentSlot_276, 0, 15, autoCompleteType) & 0xff;
+    this.unused_36 = overlayDisplayDelay;
+
+    //LAB_801063f0
+    for(int hitNum = 0; hitNum < this.count_30; hitNum++) {
+      final AdditionOverlaysHit20 hitOverlay = hitArray[hitNum];
+      hitOverlay.unused_00 = 1;
+      hitOverlay.hitSuccessful_01 = false;
+      hitOverlay.shadowColour_08 = (short)0;
+      hitOverlay.frameSuccessLowerBound_10 = (short)(overlayDisplayDelay + 2);
+      hitOverlay.borderColoursArrayIndex_02 = 3;
+      hitOverlay.isCounter_1c = false;
+      additionHitCompletionState_8011a014[hitNum] = 0;
+      int hitProperty = this.getHitProperty(s5.typeBentSlot_276, hitNum, 1, autoCompleteType) & 0xff;
+      overlayDisplayDelay += hitProperty; // Display delay for each hit
+      hitOverlay.totalHitFrames_0a = (short)hitProperty;
+      hitProperty = this.getHitProperty(s5.typeBentSlot_276, hitNum, 2, autoCompleteType) & 0xff;
+      hitOverlay.frameBeginDisplay_0c = (short)hitProperty;
+      hitProperty = this.getHitProperty(s5.typeBentSlot_276, hitNum, 3, autoCompleteType) & 0xff;
+      hitOverlay.numSuccessFrames_0e = (short)hitProperty;
+      final int successFrameTarget = hitOverlay.frameSuccessLowerBound_10 + hitOverlay.frameBeginDisplay_0c;
+      hitOverlay.frameSuccessLowerBound_10 = (short)(successFrameTarget - hitOverlay.numSuccessFrames_0e / 2 + 1);
+      hitOverlay.frameSuccessUpperBound_12 = (short)(successFrameTarget + hitOverlay.numSuccessFrames_0e - hitOverlay.numSuccessFrames_0e / 2);
+
+      final AdditionOverlaysBorder0e[] borderArray = hitOverlay.borderArray_18;
+
+      //LAB_8010652c
+      if(Config.changeAdditionOverlayRgb()) {
+        final int counterRgb = Config.getCounterOverlayRgb();
+        final int additionRgb = Config.getAdditionOverlayRgb();
+        additionBorderColours_800fb7f0[6] = counterRgb & 0xff;
+        additionBorderColours_800fb7f0[7] = counterRgb >> 8 & 0xff;
+        additionBorderColours_800fb7f0[8] = counterRgb >> 16 & 0xff;
+        additionBorderColours_800fb7f0[9] = additionRgb & 0xff;
+        additionBorderColours_800fb7f0[10] = additionRgb >> 8 & 0xff;
+        additionBorderColours_800fb7f0[11] = additionRgb >> 16 & 0xff;
+      }
+
+      final float scale = CONFIG.getConfig(CoreMod.ADDITION_OVERLAY_SIZE_CONFIG.get());
+
+      int val = 16;
+      for(int borderNum = 0; borderNum < 17; borderNum++) {
+        final AdditionOverlaysBorder0e borderOverlay = borderArray[borderNum];
+        borderOverlay.size_08 = (18 - val) * 10 * 1.5f * scale;
+        borderOverlay.isVisible_00 = true;
+        //LAB_8010656c
+        //LAB_80106574
+        if(!CONFIG.getConfig(REDUCE_MOTION_FLASHING_CONFIG.get())) {
+          borderOverlay.angleModifier_02 = Math.toRadians((16 - val) * 11.25f);
+        }
+
+        borderOverlay.countFramesVisible_0c = 5;
+        borderOverlay.sideEffects_0d = 0;
+        borderOverlay.framesUntilRender_0a = (short)(hitOverlay.frameSuccessLowerBound_10 + (hitOverlay.numSuccessFrames_0e - 1) / 2 + val - 17);
+        borderOverlay.r_04 = additionBorderColours_800fb7f0[hitOverlay.borderColoursArrayIndex_02 * 3];
+        borderOverlay.g_05 = additionBorderColours_800fb7f0[hitOverlay.borderColoursArrayIndex_02 * 3 + 1];
+        borderOverlay.b_06 = additionBorderColours_800fb7f0[hitOverlay.borderColoursArrayIndex_02 * 3 + 2];
+
+        val--;
+      }
+
+      //LAB_80106634
+      val = 0;
+      for(int borderNum = 16; borderNum >= 14; borderNum--) {
+        final AdditionOverlaysBorder0e borderOverlay = borderArray[borderNum];
+        borderOverlay.size_08 = (20 - val * 2) * 1.5f * scale;
+        borderOverlay.angleModifier_02 = 0.0f;
+        borderOverlay.countFramesVisible_0c = 0x11;
+        borderOverlay.framesUntilRender_0a = hitOverlay.frameSuccessLowerBound_10 - 17;
+
+        if(val != 0x1L) {
+          borderOverlay.r_04 = 0x30;
+          borderOverlay.g_05 = 0x30;
+          borderOverlay.b_06 = 0x30;
+          borderOverlay.sideEffects_0d = 1;
+        } else {
+          //LAB_80106680
+          borderOverlay.sideEffects_0d = -1;
+        }
+        //LAB_80106684
+        val++;
+      }
+    }
+  }
+
+  public void setContinuationState(final int continuationState) {
+    this.additionComplete_32 = continuationState;
+
+    //LAB_80107954
+    final AdditionOverlaysHit20[] hitArray = this.hitOverlays_40;
+    for(int hitNum = 0; hitNum < this.count_30; hitNum++) {
+      hitArray[hitNum].frameSuccessLowerBound_10 = 0;
+      hitArray[hitNum].frameSuccessUpperBound_12 = 0;
+      additionHitCompletionState_8011a014[hitNum] = -1;
+    }
+  }
+
+  /** Runs callbacks to render correct button icon effects during addition */
+  @Method(0x80106050L)
+  private void renderAdditionButton(final int frames, final boolean isCounter) {
+    renderText(InputCodepoints.getActionName(isCounter ? INPUT_ACTION_BTTL_COUNTER.get() : INPUT_ACTION_BTTL_ATTACK.get()), GPU.getOffsetX() + 124.5f, GPU.getOffsetY() + 56.0f, UI_WHITE_SHADOWED);
+
+    if(Math.abs(frames) >= 2) {  // Button up position
+      // Arrow
+      renderButtonPressHudElement1(0x24, 119.0f, 43.0f, Translucency.B_PLUS_F, 0x80);
+    } else {  // Button down position
+      //LAB_80106114
+      // Arrow
+      renderButtonPressHudElement1(0x24, 119.0f, 51.0f, Translucency.B_PLUS_F, 0x80);
+      // Glow
+      renderButtonPressHudElement1(0x25, 113.5f, 50.0f, Translucency.B_PLUS_F, 0x80);
+    }
+  }
+
+  private int getHitCount(final int charSlot, final int autoCompleteType) {
+    if(autoCompleteType == 1 || autoCompleteType == 3) {
+      return additionTutorialExampleHits_800fb7c0.length;
+    }
+
+    return battlePreloadedEntities_1f8003f4.getHitCount(charSlot);
+  }
+
+  /**
+   * Selects where to get hit property from based on auto-complete type. 1 and 3 use a mysterious global 2-hit array,
+   * which may be unused testing code.
+   */
+  @Method(0x801061bcL)
+  private int getHitProperty(final int charSlot, final int hitNum, final int hitPropertyIndex, final int autoCompleteType) {
+    //LAB_80106264
+    int hitPropertyValue;
+    if(autoCompleteType == 1 || autoCompleteType == 3) {
+      //LAB_80106274
+      hitPropertyValue = additionTutorialExampleHits_800fb7c0[hitNum].get(hitPropertyIndex);
+    } else {
+      //LAB_8010628c
+      hitPropertyValue = battlePreloadedEntities_1f8003f4.getHit(charSlot, hitNum).get(hitPropertyIndex) & 0xff;
+    }
+
+    //LAB_80106298
+    // Increase timing window for additions (hitPropertyIndex 3 is totalSuccessFrames)
+    if(hitPropertyIndex == 3 && hitPropertyValue > 0) {
+      final float multiplier = CONFIG.getConfig(ADDITION_TIMING_WINDOW_CONFIG.get());
+      if(multiplier != 1.0f) {
+        final int originalValue = hitPropertyValue;
+        hitPropertyValue = (int)(hitPropertyValue * multiplier);
+        LOGGER.info("Addition timing window: original=%d frames, modified=%d frames (multiplier=%.1f)", originalValue, hitPropertyValue, multiplier);
+      }
+    }
+
+    return hitPropertyValue;
+  }
+
+  @Method(0x80106774L)
+  private int fadeAdditionBorders(final AdditionOverlaysBorder0e square, final int fadeStep) {
+    int numberOfNegativeComponents = 0;
+    int newColour = square.r_04 - fadeStep;
+    final int newR;
+    if(newColour > 0) {
+      newR = newColour;
+    } else {
+      newR = 0;
+      numberOfNegativeComponents++;
+    }
+
+    //LAB_801067b0
+    newColour = square.g_05 - fadeStep;
+    final int newG;
+    if(newColour > 0) {
+      newG = newColour;
+    } else {
+      newG = 0;
+      numberOfNegativeComponents++;
+    }
+
+    //LAB_801067c4
+    newColour = square.b_06 - fadeStep;
+    final int newB;
+    if(newColour > 0) {
+      newB = newColour;
+    } else {
+      newB = 0;
+      numberOfNegativeComponents++;
+    }
+
+    //LAB_801067d8
+    square.r_04 = newR;
+    square.g_05 = newG;
+    square.b_06 = newB;
+    return numberOfNegativeComponents;
+  }
+
+  @Method(0x80106808L)
+  private void renderAdditionCentreSolidSquare(final AdditionOverlaysEffect44 effect, final AdditionOverlaysHit20 hitOverlay, final int completionState, final EffectManagerData6c<?> manager) {
+    if(manager.params_10.flags_00 >= 0) {
+      final AdditionOverlaysBorder0e[] targetBorderArray = hitOverlay.borderArray_18;
+
+      final float scale = CONFIG.getConfig(CoreMod.ADDITION_OVERLAY_SIZE_CONFIG.get());
+
+      //LAB_8010685c
+      for(int targetBorderNum = 0; targetBorderNum < 2; targetBorderNum++) {
+        final float squareSize = targetBorderArray[16].size_08 - targetBorderNum * 8 * scale;
+
+        effect.transforms.scaling(squareSize, squareSize, 1.0f);
+        effect.transforms.transfer.set(GPU.getOffsetX(), GPU.getOffsetY() + 30.0f, 120.0f);
+        final QueuedModelStandard model = RENDERER.queueOrthoModel(RENDERER.centredQuadBPlusF, effect.transforms, QueuedModelStandard.class);
+
+        if(completionState == 1) {  // Success
+          model.monochrome(1.0f);
+        } else if(completionState != -2) {  // Too early
+          model.monochrome(0x30 / 255.0f);
+        } else if(hitOverlay.isCounter_1c) {  // Counter-attack too late
+          if(Config.changeAdditionOverlayRgb()) {
+            model.colour(additionBorderColours_800fb7f0[6] / 255.0f, additionBorderColours_800fb7f0[7] / 255.0f, (additionBorderColours_800fb7f0[8] * 8 - 2) * 8 / 255.0f);
+          } else {
+            model.colour(targetBorderArray[15].r_04 * 3 / 255.0f, targetBorderArray[15].g_05 / 255.0f, (targetBorderArray[15].b_06 - 1) * 8 / 255.0f);
+          }
+        } else {  // Too late
+          model.colour(targetBorderArray[15].r_04 / 255.0f, targetBorderArray[15].g_05 / 255.0f, targetBorderArray[15].b_06 / 255.0f);
+        }
+      }
+    }
+
+    //LAB_80106a4c
+  }
+
+  /** Renders the shadow on the inside of the innermost rotating border. */
+  @Method(0x80106ac4L)
+  private void renderAdditionBorderShadow(final AdditionOverlaysHit20 hitOverlay, final float angle, final float borderSize) {
+    // Would you believe me if I said I knew what I was doing when I wrote any of this?
+    final float offset = borderSize - 1;
+    final float sin0 = MathHelper.sin(angle);
+    final float cos0 = MathHelper.cosFromSin(sin0, angle);
+    final float x0 = cos0 * offset / 2.0f;
+    final float y0 = sin0 * offset / 2.0f;
+    final int colour = hitOverlay.shadowColour_08 * 4;
+
+    this.transforms.transfer.set(x0 + GPU.getOffsetX(), y0 + GPU.getOffsetY() + 30.0f, 124.0f);
+    this.transforms
+      .scaling(10.0f, borderSize, 1.0f)
+      .rotateLocalZ(angle);
+
+    RENDERER.queueOrthoModel(this.reticleBorderShadow, this.transforms, QueuedModelStandard.class)
+      .monochrome(colour / 255.0f);
+  }
+
+  @Method(0x80106cccL)
+  private void renderAdditionBorders(final int hitNum, final AdditionOverlaysHit20[] hitArray) {
+    final AdditionOverlaysBorder0e[] borderArray = hitArray[hitNum].borderArray_18;
+    final byte currentHitCompletionState = additionHitCompletionState_8011a014[hitNum];
+
+    //LAB_80106d18
+    for(int borderNum = 0; borderNum < 17; borderNum++) {
+      final AdditionOverlaysBorder0e borderOverlay = borderArray[borderNum];
+
+      if(borderOverlay.isVisible_00 && borderOverlay.framesUntilRender_0a <= 0) {
+        this.transforms
+          .scaling(borderOverlay.size_08, borderOverlay.size_08, 1.0f)
+          .rotateZ(borderOverlay.angleModifier_02);
+
+        // There can be multiple reticles drawn to the screen at once. We want the current hit to be drawn on top
+        // of the next hit, so push the reticles away from the camera by a small margin based on hitNum
+        this.transforms.transfer.set(GPU.getOffsetX(), GPU.getOffsetY() + 30.0f, 120.0f + hitNum * 0.1f);
+
+        final QueuedModelStandard model;
+
+        // Set translucent if button press is failure and border sideEffects_0d not innermost rotating border or target (15)
+        if((borderOverlay.sideEffects_0d == 0 || borderOverlay.sideEffects_0d == -1) && currentHitCompletionState >= 0) {
+          model = RENDERER.queueOrthoModel(RENDERER.lineBox, this.transforms, QueuedModelStandard.class);
+        } else {
+          model = RENDERER.queueOrthoModel(RENDERER.lineBoxBPlusF, this.transforms, QueuedModelStandard.class);
+        }
+
+        if(hitArray[hitNum].isCounter_1c && borderNum != 16) {
+          if(Config.changeAdditionOverlayRgb()) {
+            final int rgb = Config.getCounterOverlayRgb();
+
+            // Hack to get around lack of separate counterattack color field until full dememulation
+            final float rFactor = borderArray[borderNum].r_04 / (float)additionBorderColours_800fb7f0[9];
+            final float gFactor = borderArray[borderNum].g_05 / (float)additionBorderColours_800fb7f0[10];
+            final float bFactor = borderArray[borderNum].b_06 / (float)additionBorderColours_800fb7f0[11];
+
+            model.colour((rgb & 0xff) * rFactor / 255.0f, (rgb >> 8 & 0xff) * gFactor / 255.0f, (rgb >> 16 & 0xff) * bFactor / 255.0f);
+          } else {
+            model.colour(borderOverlay.r_04 * 3 / 255.0f, borderOverlay.g_05 / 255.0f, (borderOverlay.b_06 + 1) / 8.0f / 255.0f);
+          }
+        } else {
+          //LAB_80106e58
+          model.colour(borderOverlay.r_04 / 255.0f, borderOverlay.g_05 / 255.0f, borderOverlay.b_06 / 255.0f);
+        }
+
+        // Renders rotating shadow on innermost rotating border
+        if(borderOverlay.sideEffects_0d == 0) {
+          this.renderAdditionBorderShadow(hitArray[hitNum], borderOverlay.angleModifier_02, borderOverlay.size_08);
+          this.renderAdditionBorderShadow(hitArray[hitNum], borderOverlay.angleModifier_02 + MathHelper.HALF_PI, borderOverlay.size_08);
+          this.renderAdditionBorderShadow(hitArray[hitNum], borderOverlay.angleModifier_02 + MathHelper.PI, borderOverlay.size_08);
+          this.renderAdditionBorderShadow(hitArray[hitNum], borderOverlay.angleModifier_02 + MathHelper.PI + MathHelper.HALF_PI, borderOverlay.size_08);
+        }
+      }
+      //LAB_80106fac
+    }
+  }
+
+  @Method(0x80107088L)
+  private int tickBorderDisplay(final int hitNum, final AdditionOverlaysHit20[] hitArray) {
+    // Darken shadow color of innermost border of current hit
+    final AdditionOverlaysHit20 hitOverlay = hitArray[hitNum];
+    if(this.currentFrame_34 >= hitOverlay.frameSuccessLowerBound_10 - 0x11) {
+      hitOverlay.shadowColour_08 += 1;
+
+      if(hitOverlay.shadowColour_08 >= 0xe) {
+        hitOverlay.shadowColour_08 = 0xd;
+      }
+    }
+
+    //LAB_801070ec
+    final byte currentHitCompletionState = additionHitCompletionState_8011a014[hitNum];
+    final AdditionOverlaysBorder0e[] borderArray = hitOverlay.borderArray_18;
+    int isRendered = 0;
+
+    //LAB_80107104
+    for(int borderNum = 0; borderNum < 17; borderNum++) {
+      final AdditionOverlaysBorder0e borderOverlay = borderArray[borderNum];
+
+      // Fade shadow if hit failed, set invisible if border is within 0x20 of fully faded
+      if(currentHitCompletionState < 0) {
+        hitOverlay.shadowColour_08 -= 3;
+
+        if(hitOverlay.shadowColour_08 < 0) {
+          hitOverlay.shadowColour_08 = 0;
+        }
+
+        //LAB_80107134
+        if(this.fadeAdditionBorders(borderOverlay, 0x20) == 3) {
+          borderOverlay.isVisible_00 = false;
+        }
+      }
+
+      //LAB_80107150
+      if(borderOverlay.isVisible_00) {
+        if(borderOverlay.framesUntilRender_0a > 0) {
+          borderOverlay.framesUntilRender_0a--;
+        } else {
+          //LAB_80107178
+          if(borderOverlay.sideEffects_0d != -1) {
+            borderOverlay.sideEffects_0d++;
+          }
+
+          //LAB_80107190
+          borderOverlay.countFramesVisible_0c--;
+          if(borderOverlay.countFramesVisible_0c == 0) {
+            borderOverlay.isVisible_00 = false;
+          }
+
+          //LAB_801071b0
+          // Fade rotating borders only
+          if(borderNum < 14) {
+            this.fadeAdditionBorders(borderOverlay, 0x4e);
+          }
+
+          isRendered = 1;
+        }
+      }
+      //LAB_801071c0
+    }
+
+    return isRendered;
+  }
+
+  /** If a hit is failed, flag all subsequent hits as failed as well */
+  @Method(0x801071fcL)
+  private void propagateFailedAdditionHitFlag(final AdditionOverlaysHit20[] hitArray, int hitNum) {
+    final byte currentHitCompletionState = additionHitCompletionState_8011a014[hitNum];
+    this.additionComplete_32 = 1;
+
+    //LAB_80107234
+    hitNum += 1;
+    for(; hitNum < this.count_30; hitNum++) {
+      final AdditionOverlaysHit20 hitOverlay = hitArray[hitNum];
+      hitOverlay.frameSuccessUpperBound_12 = -1;
+      hitOverlay.frameSuccessLowerBound_10 = -1;
+      hitOverlay.numSuccessFrames_0e = 0;
+      hitOverlay.frameBeginDisplay_0c = 0;
+      additionHitCompletionState_8011a014[hitNum] = currentHitCompletionState;
+    }
+    //LAB_80107264
+  }
+
+  @Override
+  @Method(0x801073d4L)
+  public void tick(final ScriptState<EffectManagerData6c<EffectManagerParams.VoidType>> state) {
+    final EffectManagerData6c<EffectManagerParams.VoidType> manager = state.innerStruct_00;
+
+    if(this.pauseTickerAndRenderer_31 == 0) {
+      final AdditionOverlaysHit20[] hitArray = this.hitOverlays_40;
+      this.currentFrame_34++;
+
+      //LAB_80107440
+      int hitNum;
+      int hitFailed = 1;
+      for(hitNum = 0; hitNum < this.count_30; hitNum++) {
+        // Catch too late failure when no button pressed
+        if(this.currentFrame_34 == hitArray[hitNum].frameSuccessUpperBound_12 + 1) {
+          if(additionHitCompletionState_8011a014[hitNum] == 0) {
+            additionHitCompletionState_8011a014[hitNum] = -2;
+            this.propagateFailedAdditionHitFlag(hitArray, hitNum);
+
+            //LAB_80107478
+          }
+        } else if(additionHitCompletionState_8011a014[hitNum] == 0) {
+          hitFailed = 0;
+        }
+        //LAB_8010748c
+      }
+
+      //LAB_801074a8
+      if(hitFailed != 0) {
+        this.propagateFailedAdditionHitFlag(hitArray, hitNum);
+      }
+
+      //LAB_801074bc
+      int numberBordersRendering = 0;
+
+      //LAB_801074d0
+      for(hitNum = 0; hitNum < this.count_30; hitNum++) {
+        numberBordersRendering += this.tickBorderDisplay(hitNum, hitArray);
+      }
+
+      //LAB_80107500
+      // If addition is complete and there are no more visible overlays to render, deallocate effect
+      if(numberBordersRendering == 0 && this.additionComplete_32 != 0) {
+        additionOverlayActive_80119f41 = 0;
+
+        //LAB_8010752c
+        for(hitNum = 0; hitNum < this.count_30; hitNum++) {
+          hitArray[hitNum].borderArray_18 = null;
+        }
+
+        //LAB_80107554
+        state.deallocateWithChildren();
+      } else {
+        //LAB_8010756c
+        if(this.currentFrame_34 >= 9) {
+          //LAB_80107598
+          for(hitNum = 0; hitNum < this.count_30; hitNum++) {
+            if(additionHitCompletionState_8011a014[hitNum] == 0) {
+              break;
+            }
+          }
+
+          //LAB_801075bc
+          if(hitNum < this.count_30) {
+            final AdditionOverlaysHit20 hitOverlay = hitArray[hitNum];
+
+            final AdditionCounterAmount counterAmount = CONFIG.getConfig(CoreMod.ADDITION_COUNTER_AMOUNT_CONFIG.get());
+            if(counterAmount != AdditionCounterAmount.NONE) {
+              if(state.getStor(8) != 0) {
+                hitOverlay.isCounter_1c = true;
+                state.setStor(8, 0);
+              }
+            }
+
+            //LAB_801075e8
+            if(this.autoCompleteType_3a < 1 || this.autoCompleteType_3a > 2) {
+              //LAB_8010763c
+              if(this.autoCompleteType_3a != 3) {
+                final InputAction right;
+                final InputAction wrong;
+                if(!hitOverlay.isCounter_1c) {
+                  right = INPUT_ACTION_BTTL_ATTACK.get();
+                  wrong = INPUT_ACTION_BTTL_COUNTER.get();
+                } else {
+                  right = INPUT_ACTION_BTTL_COUNTER.get();
+                  wrong = INPUT_ACTION_BTTL_ATTACK.get();
+                }
+
+                //LAB_80107664
+                if(PLATFORM.isActionPressed(right) || PLATFORM.isActionPressed(wrong)) {
+                  additionHitCompletionState_8011a014[hitNum] = -1;
+
+                  if(!PLATFORM.isActionPressed(right) || PLATFORM.isActionPressed(wrong)) {
+                    //LAB_801076d8
+                    //LAB_801076dc
+                    additionHitCompletionState_8011a014[hitNum] = -3;
+                  } else if(this.currentFrame_34 >= hitOverlay.frameSuccessLowerBound_10 && this.currentFrame_34 <= hitOverlay.frameSuccessUpperBound_12) {
+                    additionHitCompletionState_8011a014[hitNum] = 1;
+                    hitOverlay.hitSuccessful_01 = true;
+                  }
+
+                  //LAB_801076f0
+                  if(additionHitCompletionState_8011a014[hitNum] < 0) {
+                    this.propagateFailedAdditionHitFlag(hitArray, hitNum);
+                  }
+
+                  //LAB_80107718
+                  //LAB_8010771c
+                  this.numFramesToRenderCenterSquare_38 = 2;
+                  this.lastCompletedHit_39 = hitNum;
+                }
+              }
+            } else {  // Auto-complete
+              if(this.currentFrame_34 >= hitOverlay.frameSuccessLowerBound_10 && this.currentFrame_34 <= hitOverlay.frameSuccessUpperBound_12) {
+                additionHitCompletionState_8011a014[hitNum] = 1;
+                hitOverlay.hitSuccessful_01 = true;
+
+                //LAB_8010771c
+                this.numFramesToRenderCenterSquare_38 = 2;
+                this.lastCompletedHit_39 = hitNum;
+              }
+            }
+          }
+
+          //LAB_80107728
+          if(this.numFramesToRenderCenterSquare_38 != 0) {
+            this.numFramesToRenderCenterSquare_38--;
+            if(CONFIG.getConfig(CoreMod.ADDITION_OVERLAY_CONFIG.get()) != AdditionOverlayMode.OFF) {
+              this.renderAdditionCentreSolidSquare(this, this.hitOverlays_40[this.lastCompletedHit_39], additionHitCompletionState_8011a014[this.lastCompletedHit_39], manager);
+            }
+          }
+        }
+      }
+    }
+    //LAB_80107764
+  }
+
+  @Override
+  @Method(0x8010726cL)
+  public void render(final ScriptState<EffectManagerData6c<EffectManagerParams.VoidType>> state) {
+    final EffectManagerData6c<EffectManagerParams.VoidType> manager = state.innerStruct_00;
+
+    if(this.pauseTickerAndRenderer_31 != 1) {
+      if(manager.params_10.flags_00 >= 0) {
+        final AdditionOverlaysHit20[] hitArray = this.hitOverlays_40;
+
+        //LAB_801072c4
+        int hitNum;
+        for(hitNum = 0; hitNum < this.count_30; hitNum++) {
+          if(CONFIG.getConfig(CoreMod.ADDITION_OVERLAY_CONFIG.get()) == AdditionOverlayMode.FULL) {
+            this.renderAdditionBorders(hitNum, hitArray);
+          }
+        }
+
+        //LAB_801072f4
+        //LAB_8010730c
+        for(hitNum = 0; hitNum < this.count_30; hitNum++) {
+          if(additionHitCompletionState_8011a014[hitNum] == 0) {
+            break;
+          }
+        }
+
+        //LAB_80107330
+        if(hitNum < this.count_30) {
+          final AdditionOverlaysHit20 hitOverlay = hitArray[hitNum];
+          if(CONFIG.getConfig(CoreMod.ADDITION_OVERLAY_CONFIG.get()) == AdditionOverlayMode.FULL) {
+            this.renderAdditionButton(hitOverlay.frameSuccessLowerBound_10 + (hitOverlay.frameSuccessUpperBound_12 - hitOverlay.frameSuccessLowerBound_10) / 2 - this.currentFrame_34 - 1, hitOverlay.isCounter_1c);
+          }
+
+          final byte currentFrame = (byte)this.currentFrame_34;
+          if(currentFrame >= hitOverlay.frameSuccessLowerBound_10 && currentFrame <= hitOverlay.frameSuccessUpperBound_12) {
+            if(CONFIG.getConfig(CoreMod.ADDITION_OVERLAY_CONFIG.get()) != AdditionOverlayMode.OFF) {
+              this.renderAdditionCentreSolidSquare(this, hitOverlay, -2, manager);
+            }
+          }
+        }
+      }
+    }
+
+    //LAB_801073b4
+  }
+
+  @Override
+  public void destroy(final ScriptState<EffectManagerData6c<EffectManagerParams.VoidType>> state) {
+    this.reticleBorderShadow.delete();
+  }
+
+  /** Some kind of mysterious global 2-hit addition array. Should probably be yeeted, but need to be sure. */
+  private static final AdditionHitProperties10[] additionTutorialExampleHits_800fb7c0 = {
+    new AdditionHitProperties10(0xc0, 13, 9, 2, 50, 20, 2, 0, 0, 0, 8, 5, 8, 32, 0, 11, new AdditionSound(4, 9)),
+    new AdditionHitProperties10(0xc0, 33, 27, 1, 30, 10, 0, 0, 0, 25, 2, 1, 8, 32, 0, 0, new AdditionSound(0, 7)),
+  };
+}

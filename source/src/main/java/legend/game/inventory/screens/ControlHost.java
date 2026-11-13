@@ -1,0 +1,268 @@
+package legend.game.inventory.screens;
+
+import legend.core.platform.input.InputAction;
+import legend.core.platform.input.InputAxis;
+import legend.core.platform.input.InputAxisDirection;
+import legend.core.platform.input.InputButton;
+import legend.core.platform.input.InputClass;
+import legend.core.platform.input.InputKey;
+import legend.core.platform.input.InputMod;
+import legend.game.modding.coremod.CoreMod;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Predicate;
+
+import static legend.core.GameEngine.CONFIG;
+import static legend.core.GameEngine.PLATFORM;
+
+public abstract class ControlHost implements Iterable<Control> {
+  private final List<Control> controls = new ArrayList<>();
+
+  protected double mouseX;
+  protected double mouseY;
+
+  protected abstract MenuScreen getScreen();
+  protected abstract ControlHost getParent();
+  protected abstract int getX();
+  protected abstract int getY();
+  protected abstract int getWidth();
+  protected abstract int getHeight();
+
+  boolean deleted;
+
+  public int calculateTotalX() {
+    int x = this.getX();
+
+    ControlHost current = this;
+    while((current = current.getParent()) != null) {
+      x += current.getX();
+    }
+
+    return x;
+  }
+
+  public int calculateTotalY() {
+    int y = this.getY();
+
+    ControlHost current = this;
+    while((current = current.getParent()) != null) {
+      y += current.getY();
+    }
+
+    return y;
+  }
+
+  public <T extends Control> T addControl(final T control) {
+    control.setScreen(this.getScreen());
+    control.setParent(this);
+    this.controls.add(control);
+    this.controls.sort(Comparator.comparingInt(Control::getZ));
+    return control;
+  }
+
+  public void removeControl(final Control control) {
+    this.controls.remove(control);
+    control.delete();
+  }
+
+  protected void delete() {
+    this.deleted = true;
+
+    for(final Control control : this.controls) {
+      control.delete();
+    }
+  }
+
+  public <T extends Control> Optional<T> findControl(final Class<T> type, final Predicate<T> predicate) {
+    return this.controls.stream()
+      .filter(type::isInstance)
+      .map(type::cast)
+      .filter(predicate)
+      .findFirst();
+  }
+
+  public <T extends Control> List<T> findControls(final Class<T> type, final Predicate<T> predicate) {
+    return this.controls.stream()
+      .filter(type::isInstance)
+      .map(type::cast)
+      .filter(predicate)
+      .toList();
+  }
+
+  protected void renderControls(final int parentX, final int parentY) {
+    if(this.deleted) {
+      return;
+    }
+
+    this.controls.forEach(control -> control.renderControl(parentX, parentY));
+  }
+
+  @Override
+  public Iterator<Control> iterator() {
+    return this.controls.iterator();
+  }
+
+  protected List<Control> getControls() {
+    return this.controls;
+  }
+
+  protected Control getControl(final int index) {
+    return index > -1 && index < this.controls.size() ? this.controls.get(index) : null;
+  }
+
+  protected Control findControlAt(final int x, final int y) {
+    return this.findControlAt(x, y, false);
+  }
+
+  protected Control findControlAt(final int x, final int y, final boolean nested) {
+    final List<Control> controls = new ArrayList<>();
+
+    for(final Control control : this.controls) {
+      if(control.acceptsInput() && control.isVisible() && control.containsPoint(x, y)) {
+        final Control subcontrol;
+        if(nested) {
+          subcontrol = control.findControlAt(x - control.getX(), y - control.getY());
+        } else {
+          subcontrol = null;
+        }
+
+        controls.add(subcontrol != null ? subcontrol : control);
+      }
+    }
+
+    if(controls.isEmpty()) {
+      return null;
+    }
+
+    controls.sort(Comparator.comparingInt(Control::getZ));
+    return controls.getFirst();
+  }
+
+  protected InputPropagation mouseMove(final double x, final double y) {
+    if(CONFIG.getConfig(CoreMod.DISABLE_MOUSE_INPUT_CONFIG.get()) && PLATFORM.hasGamepad()) {
+      return InputPropagation.HANDLED;
+    }
+
+    this.mouseX = x;
+    this.mouseY = y;
+
+    final Control control = this.findControlAt((int)x, (int)y);
+
+    if(control != null && !control.isDisabled()) {
+      return control.mouseMove(x - control.getX(), y - control.getY());
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation mousePress(final double x, final double y, final int button, final Set<InputMod> mods) {
+    if(CONFIG.getConfig(CoreMod.DISABLE_MOUSE_INPUT_CONFIG.get()) && PLATFORM.hasGamepad()) {
+      return InputPropagation.HANDLED;
+    }
+
+    final Control control = this.findControlAt((int)x, (int)y);
+
+    if(control != null && !control.isDisabled()) {
+      return control.mousePress(x - control.getX(), y - control.getY(), button, mods);
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation mouseRelease(final double x, final double y, final int button, final Set<InputMod> mods) {
+    if(CONFIG.getConfig(CoreMod.DISABLE_MOUSE_INPUT_CONFIG.get()) && PLATFORM.hasGamepad()) {
+      return InputPropagation.HANDLED;
+    }
+
+    final Control control = this.findControlAt((int)x, (int)y);
+
+    if(control != null && !control.isDisabled()) {
+      return control.mouseRelease(x - control.getX(), y - control.getY(), button, mods);
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation mouseClick(final double x, final double y, final int button, final Set<InputMod> mods) {
+    if(CONFIG.getConfig(CoreMod.DISABLE_MOUSE_INPUT_CONFIG.get()) && PLATFORM.hasGamepad()) {
+      return InputPropagation.HANDLED;
+    }
+
+    final Control control = this.findControlAt((int)x, (int)y);
+
+    if(control != null && !control.isDisabled()) {
+      return control.mouseClick(x - control.getX(), y - control.getY(), button, mods);
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation mouseScroll(final int deltaX, final int deltaY) {
+    if(CONFIG.getConfig(CoreMod.DISABLE_MOUSE_INPUT_CONFIG.get()) && PLATFORM.hasGamepad()) {
+      return InputPropagation.HANDLED;
+    }
+
+    final Control control = this.findControlAt((int)this.mouseX, (int)this.mouseY);
+
+    if(control != null && !control.isDisabled()) {
+      return control.mouseScroll(deltaX, deltaY);
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation mouseScrollHighRes(final double deltaX, final double deltaY) {
+    if(CONFIG.getConfig(CoreMod.DISABLE_MOUSE_INPUT_CONFIG.get()) && PLATFORM.hasGamepad()) {
+      return InputPropagation.HANDLED;
+    }
+
+    final Control control = this.findControlAt((int)this.mouseX, (int)this.mouseY);
+
+    if(control != null && !control.isDisabled()) {
+      return control.mouseScrollHighRes(deltaX, deltaY);
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation keyPress(final InputKey key, final InputKey scancode, final Set<InputMod> mods, final boolean repeat) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation keyRelease(final InputKey key, final InputKey scancode, final Set<InputMod> mods) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation buttonPress(final InputButton button, final boolean repeat) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation buttonRelease(final InputButton button) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation axis(final InputAxis axis, final InputAxisDirection direction, final float menuValue, final float movementValue) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation charPress(final int codepoint) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation inputActionPressed(final InputAction action, final boolean repeat) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation inputActionReleased(final InputAction action) {
+    return InputPropagation.PROPAGATE;
+  }
+
+  protected InputPropagation inputClassChanged(final InputClass type) {
+    return InputPropagation.PROPAGATE;
+  }
+}

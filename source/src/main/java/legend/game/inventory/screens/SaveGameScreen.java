@@ -1,0 +1,233 @@
+package legend.game.inventory.screens;
+
+import legend.core.Async;
+import legend.core.lang.I18nText;
+import legend.core.lang.RawText;
+import legend.game.i18n.I18n;
+import legend.game.inventory.screens.controls.Background;
+import legend.game.inventory.screens.controls.BigList;
+import legend.game.inventory.screens.controls.BlankSaveCard;
+import legend.game.inventory.screens.controls.Glyph;
+import legend.game.saves.SaveFailedException;
+import legend.game.saves.SavedGame;
+import legend.game.types.MessageBoxResult;
+import legend.game.types.MessageBoxType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+import static legend.core.GameEngine.SAVES;
+import static legend.game.EngineStates.currentEngineState_8004dd04;
+import static legend.game.FullScreenEffects.fullScreenEffect_800bb140;
+import static legend.game.FullScreenEffects.startFadeEffect;
+import static legend.game.Menus.deallocateRenderables;
+import static legend.game.SItem.UI_TEXT_CENTERED;
+import static legend.game.SItem.menuStack;
+import static legend.game.Scus94491BpeSegment_800b.campaignType;
+import static legend.game.Scus94491BpeSegment_800b.gameState_800babc8;
+import static legend.game.Text.renderText;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_DELETE;
+import static legend.game.sound.Audio.playMenuSound;
+
+public class SaveGameScreen extends MenuScreen {
+  private static final Logger LOGGER = LogManager.getFormatterLogger(SaveGameScreen.class);
+
+  private final BigList<CompletableFuture<SavedGame>> saveList;
+  private Control saveCard;
+  private final List<CompletableFuture<SavedGame>> saves;
+
+  private final Runnable unload;
+  private final boolean fadeOutOnClose;
+  private boolean closing;
+
+  public SaveGameScreen(final Runnable unload) {
+    this(unload, false);
+  }
+
+  public SaveGameScreen(final Runnable unload, final boolean fadeOutOnClose) {
+    this.unload = unload;
+    this.fadeOutOnClose = fadeOutOnClose;
+
+    deallocateRenderables(0xff);
+    startFadeEffect(2, 10);
+
+    this.addControl(new Background());
+
+    // Bottom line
+    this.addControl(Glyph.glyph(78)).setPos(26, 155);
+    this.addControl(Glyph.glyph(79)).setPos(192, 155);
+
+    this.saveList = this.addControl(new BigList<>(savedGame -> {
+      if(savedGame == null) {
+        return new I18nText("lod_core.ui.save_game.new_save");
+      }
+
+      if(!savedGame.isDone()) {
+        return new I18nText("lod_core.ui.save_game.loading");
+      }
+
+      return new RawText(Async.resultNow(savedGame).saveName);
+    }));
+
+    this.saveList.setPos(16, 16);
+    this.saveList.setSize(360, 144);
+    this.saveList.onHighlight(this::onHighlight);
+    this.saveList.onSelection(save -> {
+      if(save == null) {
+        this.onSelection(null);
+      } else if(save.isDone()) {
+        this.onSelection(Async.resultNow(save));
+      } else {
+        playMenuSound(40);
+      }
+    });
+    this.setFocus(this.saveList);
+
+    this.saveList.addEntry(null);
+
+    this.saves = gameState_800babc8.campaign.loadAllSaves();
+    for(final CompletableFuture<SavedGame> save : this.saves) {
+      this.saveList.addEntry(save);
+    }
+
+    this.addHotkey(new I18nText("lod_core.ui.save_game.delete"), INPUT_ACTION_MENU_DELETE, this::menuDelete);
+    this.addHotkey(new I18nText("lod_core.ui.save_game.back"), INPUT_ACTION_MENU_BACK, this::menuEscape);
+  }
+
+  private void onHighlight(final CompletableFuture<SavedGame> save) {
+    synchronized(this.saveList) {
+      if(this.saveCard != null) {
+        this.removeControl(this.saveCard);
+      }
+
+      if(save != null && save.isDone()) {
+        this.saveCard = this.addControl(Async.resultNow(save).createSaveCard());
+        this.saveCard.alwaysReceiveInput();
+      } else {
+        this.saveCard = this.addControl(new BlankSaveCard());
+
+        if(save != null) {
+          save.thenAcceptAsync(f -> {
+            synchronized(this.saveList) {
+              if(this.saveList.getSelected() == save) {
+                this.onHighlight(save);
+              }
+            }
+          });
+        }
+      }
+
+      this.saveCard.setPos(16, 160);
+    }
+  }
+
+  @Override
+  public void setFocus(@Nullable final Control control) {
+    super.setFocus(this.saveList);
+  }
+
+  @Override
+  protected void render() {
+    renderText(I18n.translate("lod_core.ui.save_game.save_game"), 188, 10, UI_TEXT_CENTERED);
+
+    if(this.closing && fullScreenEffect_800bb140.currentColour_28 >= 0xff) {
+      this.closing = false;
+      this.unload.run();
+    }
+  }
+
+  private void onSelection(@Nullable final SavedGame save) {
+    if(this.closing) {
+      return;
+    }
+
+    playMenuSound(2);
+
+    if(save == null) {
+      menuStack.pushScreen(new InputBoxScreen(new I18nText("lod_core.ui.save_game.save_name"), SAVES.generateSaveName(this.saves, gameState_800babc8), this::onNewSaveResult));
+    } else {
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.overwrite_confirm"), MessageBoxType.CONFIRMATION, result -> this.onOverwriteResult(result, save)));
+    }
+  }
+
+  private void onNewSaveResult(final MessageBoxResult result, final String name) {
+    if(result == MessageBoxResult.YES) {
+      if(gameState_800babc8.campaign.saveExists(name)) {
+        menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.save_name_in_use"), MessageBoxType.ALERT, result1 -> { }));
+        return;
+      }
+
+      try {
+        SAVES.newSave(name, campaignType.get(), currentEngineState_8004dd04, gameState_800babc8);
+        this.close();
+      } catch(final SaveFailedException e) {
+        menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.save_failed"), MessageBoxType.ALERT, r -> { }));
+        LOGGER.error("Failed to save game", e);
+      }
+    }
+  }
+
+  private void onOverwriteResult(final MessageBoxResult result, final SavedGame save) {
+    if(result == MessageBoxResult.YES) {
+      try {
+        SAVES.overwriteSave(save.fileName, save.saveName, campaignType.get(), currentEngineState_8004dd04, gameState_800babc8);
+        this.close();
+      } catch(final SaveFailedException e) {
+        menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.save_failed"), MessageBoxType.ALERT, r -> { }));
+        LOGGER.error("Failed to save game", e);
+      }
+    }
+  }
+
+  private void menuDelete() {
+    if(this.closing) {
+      return;
+    }
+
+    playMenuSound(40);
+
+    if(this.saveList.size() == 1) {
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.cannot_delete_last_save"), MessageBoxType.ALERT, result -> {}));
+      return;
+    }
+
+    if(this.saveList.getSelected() != null && this.saveList.getSelected().isDone()) {
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.delete_confirm"), MessageBoxType.CONFIRMATION, result -> {
+        if(result == MessageBoxResult.YES) {
+          try {
+            final SavedGame savedGame = Async.resultNow(this.saveList.getSelected());
+            savedGame.campaign.deleteSave(savedGame.fileName);
+            this.saves.removeIf(save -> Async.resultNow(save).fileName.equals(savedGame.fileName));
+            this.saveList.removeEntry(this.saveList.getSelected());
+          } catch(final IOException e) {
+            LOGGER.error("Failed to delete save", e);
+            this.deferAction(() -> menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.save_game.delete_fail"), MessageBoxType.ALERT, result1 -> {})));
+          }
+        }
+      }));
+    }
+  }
+
+  private void menuEscape() {
+    if(this.closing) {
+      return;
+    }
+
+    playMenuSound(3);
+    this.close();
+  }
+
+  private void close() {
+    if(this.fadeOutOnClose) {
+      startFadeEffect(1, 10);
+      this.closing = true;
+    } else {
+      this.unload.run();
+    }
+  }
+}

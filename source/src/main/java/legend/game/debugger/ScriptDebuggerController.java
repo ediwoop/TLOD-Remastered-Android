@@ -1,0 +1,278 @@
+package legend.game.debugger;
+
+import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
+import javafx.application.Platform;
+import javafx.beans.Observable;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
+import javafx.fxml.FXML;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
+import javafx.scene.control.cell.TextFieldListCell;
+import javafx.stage.Stage;
+import javafx.util.StringConverter;
+import legend.game.modding.events.RenderEvent;
+import legend.game.scripting.ScriptLifecycleEvent;
+import legend.game.scripting.ScriptManager;
+import legend.game.scripting.ScriptStackFrame;
+import legend.game.scripting.ScriptState;
+import org.legendofdragoon.modloader.events.EventListener;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static legend.core.GameEngine.EVENTS;
+import static legend.core.GameEngine.SCRIPTS;
+
+public class ScriptDebuggerController {
+  private static final List<ScriptDebuggerController> INSTANCES = new ArrayList<>();
+  private static boolean INITIALIZED;
+
+  @FXML
+  private ComboBox<ListItem> scriptSelector;
+  private final ObservableList<ListItem> scripts = FXCollections.observableArrayList(e -> new Observable[] {e.prop});
+
+  @FXML
+  private CheckBox scriptLog;
+
+  @FXML
+  private ListView<ListItem> scriptStorage;
+  private final ObservableList<ListItem> storage = FXCollections.observableArrayList(e -> new Observable[] {e.prop});
+
+  @FXML
+  public TextField stackTop;
+  @FXML
+  private ListView<ListItem> commandStack;
+  private final ObservableList<ListItem> stack = FXCollections.observableArrayList(e -> new Observable[] {e.prop});
+
+  @FXML
+  public TextField ticker;
+  @FXML
+  public TextField renderer;
+  @FXML
+  public TextField tempTicker;
+  @FXML
+  public TextField destructor;
+  @FXML
+  public TextField filePtr;
+  @FXML
+  public TextField parentIndex;
+  @FXML
+  public TextField childIndex;
+
+  public void initialize() {
+    synchronized(INSTANCES) {
+      for(int i = 0; i < SCRIPTS.count(); i++) {
+        this.scripts.add(new ListItem(this::getScriptName, i));
+      }
+
+      this.scriptSelector.setItems(this.scripts);
+      this.scriptSelector.setConverter(new StringConverter<>() {
+        @Override
+        public String toString(final ListItem object) {
+          return object != null ? object.getName() : null;
+        }
+
+        @Override
+        public ListItem fromString(final String string) {
+          return null;
+        }
+      });
+      this.scriptSelector.setValue(this.scripts.getFirst());
+      this.scriptSelector.onActionProperty().set(event -> this.updateScriptVars());
+
+      for(int i = 0; i < ScriptState.STORAGE_COUNT; i++) {
+        this.storage.add(new ListItem(paramIndex -> this.getScriptStorage(this.scriptSelector.getValue().index, paramIndex), i));
+      }
+
+      this.scriptStorage.setItems(this.storage);
+      this.scriptStorage.setCellFactory(param -> {
+        final TextFieldListCell<ListItem> cell = new TextFieldListCell<>();
+        cell.setConverter(this.scriptSelector.getConverter());
+        return cell;
+      });
+
+      this.commandStack.setItems(this.stack);
+      this.commandStack.setCellFactory(this.scriptStorage.getCellFactory());
+
+      INSTANCES.add(this);
+      EVENTS.register(this);
+    }
+
+    INITIALIZED = true;
+  }
+
+  public void uninitialize() {
+    synchronized(INSTANCES) {
+      INSTANCES.remove(this);
+    }
+  }
+
+  public void scriptLogClick(final ActionEvent event) {
+    synchronized(INSTANCES) {
+      ScriptManager.scriptLog[this.getSelectedScript()] = this.scriptLog.isSelected();
+
+      for(final ScriptDebuggerController instance : INSTANCES) {
+        if(instance.getSelectedScript() == this.getSelectedScript()) {
+          instance.scriptLog.setSelected(this.scriptLog.isSelected());
+        }
+      }
+    }
+  }
+
+  @FXML
+  public void debugScript(final ActionEvent actionEvent) throws Exception {
+    final ScriptLiveDebugger scriptDebugger = new ScriptLiveDebugger();
+    scriptDebugger.setState(this.scriptSelector.getValue().index).start(new Stage());
+  }
+
+  public void selectScript(final int index) {
+    this.scriptSelector.setValue(this.scripts.get(index));
+  }
+
+  public int getSelectedScript() {
+    return this.scriptSelector.getValue().index;
+  }
+
+  private void updateScriptName(final int scriptIndex) {
+    final ListItem item = this.scripts.get(scriptIndex);
+    item.update();
+
+    if(item == this.scriptSelector.getValue()) {
+      this.scriptSelector.setValue(item);
+    }
+  }
+
+  private String getScriptName(final int scriptIndex) {
+    final ScriptState<?> state = SCRIPTS.getState(scriptIndex);
+    return state != null ? state.name + " (" + (state.innerStruct_00 != null ? state.innerStruct_00.getClass().getSimpleName() : "empty state") + ')' : "not allocated";
+  }
+
+  private void updateScriptVars() {
+    final ScriptState<?> state = SCRIPTS.getState(this.scriptSelector.getValue().index);
+
+    if(state == null) {
+      return;
+    }
+
+    for(int storageIndex = 0; storageIndex < ScriptState.STORAGE_COUNT; storageIndex++) {
+      this.storage.get(storageIndex).update();
+    }
+
+    if(state.frame().offset == -1) {
+      this.stackTop.setText("null");
+    } else {
+      this.stackTop.setText("0x%x".formatted(state.frame().offset * 0x4));
+    }
+
+    this.stack.clear();
+    for(int stackIndex = 0; stackIndex < state.callStackDepth(); stackIndex++) {
+      this.stack.add(new ListItem(i -> this.getCommandStack(this.scriptSelector.getValue().index, i), stackIndex));
+    }
+
+    if(state.ticker_04 != null) {
+      this.ticker.setText(state.ticker_04.toString());
+    } else {
+      this.ticker.setText("null");
+    }
+
+    if(state.renderer_08 != null) {
+      this.renderer.setText(state.renderer_08.toString());
+    } else {
+      this.renderer.setText("null");
+    }
+
+    if(state.tempTicker_10 != null) {
+      this.tempTicker.setText(state.tempTicker_10.toString());
+    } else {
+      this.tempTicker.setText("null");
+    }
+
+    if(state.destructor_0c != null) {
+      this.destructor.setText(state.destructor_0c.toString());
+    } else {
+      this.destructor.setText("null");
+    }
+
+    if(state.callStackDepth() != 0) {
+      this.filePtr.setText(state.frame().file.name);
+    } else {
+      this.filePtr.setText("<none>");
+    }
+    this.parentIndex.setText("0x%1$x (%1$d)".formatted(state.getStor(5)));
+    this.childIndex.setText("0x%1$x (%1$d)".formatted(state.getStor(6)));
+  }
+
+  private String getScriptStorage(final int scriptIndex, final int storageIndex) {
+    final ScriptState<?> state = SCRIPTS.getState(scriptIndex);
+
+    if(state == null) {
+      return "null";
+    }
+
+    final int val = state.getStor(storageIndex);
+    return "0x%1$x (%1$d)".formatted(val);
+  }
+
+  private String getCommandStack(final int scriptIndex, final int stackIndex) {
+    final ScriptState<?> state = SCRIPTS.getState(scriptIndex);
+
+    if(state == null || stackIndex >= state.callStackDepth()) {
+      return "";
+    }
+
+    final ScriptStackFrame frame = state.frame(stackIndex);
+    return "0x%x %s".formatted(frame.offset * 0x4, frame.file.name);
+  }
+
+  @EventListener
+  public void onScriptLifecycle(final ScriptLifecycleEvent event) {
+    if(event.getLifecycle() == ScriptLifecycleEvent.Lifecycle.ALLOCATED || event.getLifecycle() == ScriptLifecycleEvent.Lifecycle.PRE_DEALLOCATE) {
+      Platform.runLater(() -> this.updateScriptName(event.scriptIndex));
+    } else if(event.getLifecycle() == ScriptLifecycleEvent.Lifecycle.POST_SCRIPT_VM_TICK) {
+      if(event.scriptIndex == this.scriptSelector.getValue().index) {
+        Platform.runLater(this::updateScriptVars);
+      }
+    }
+  }
+
+  @EventListener
+  public void onRender(final RenderEvent event) {
+    synchronized(INSTANCES) {
+      if(!INSTANCES.isEmpty() && this == INSTANCES.getFirst()) { // we only want it to happen once per frame
+        for(int i = 0; i < SCRIPTS.count(); i++) {
+          final ScriptState<?> state = SCRIPTS.getState(i);
+
+          if(state != null) {
+            state.renderDebugInfo();
+          }
+        }
+      }
+    }
+  }
+
+  private static class ListItem {
+    private final Int2ObjectFunction<String> nameFunc;
+    private final StringProperty prop = new SimpleStringProperty(this, "name");
+    private final int index;
+
+    public ListItem(final Int2ObjectFunction<String> nameFunc, final int index) {
+      this.nameFunc = nameFunc;
+      this.index = index;
+      this.update();
+    }
+
+    public void update() {
+      this.prop.set(this.index + ": " + this.nameFunc.get(this.index));
+    }
+
+    public String getName() {
+      return this.prop.get();
+    }
+  }
+}

@@ -1,0 +1,189 @@
+package legend.game.inventory.screens;
+
+import legend.core.Async;
+import legend.core.lang.I18nText;
+import legend.core.lang.RawText;
+import legend.game.i18n.I18n;
+import legend.game.inventory.screens.controls.Background;
+import legend.game.inventory.screens.controls.BigList;
+import legend.game.inventory.screens.controls.BlankSaveCard;
+import legend.game.inventory.screens.controls.Glyph;
+import legend.game.saves.Campaign;
+import legend.game.saves.SavedGame;
+import legend.game.types.MessageBoxResult;
+import legend.game.types.MessageBoxType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+import static legend.game.sound.Audio.playMenuSound;
+import static legend.game.FullScreenEffects.fullScreenEffect_800bb140;
+import static legend.game.FullScreenEffects.startFadeEffect;
+import static legend.game.Menus.deallocateRenderables;
+import static legend.game.SItem.UI_TEXT_CENTERED;
+import static legend.game.SItem.menuStack;
+import static legend.game.Text.renderText;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_DELETE;
+
+public class LoadGameScreen extends MenuScreen {
+  private static final Logger LOGGER = LogManager.getFormatterLogger(LoadGameScreen.class);
+
+  private final Campaign campaign;
+  private final BigList<CompletableFuture<SavedGame>> saveList;
+  private Control saveCard;
+  private final Consumer<SavedGame> saveSelected;
+  private final Runnable closed;
+  private boolean closing;
+
+  private boolean updateSave;
+
+  public LoadGameScreen(final List<CompletableFuture<SavedGame>> saves, final Consumer<SavedGame> saveSelected, final Runnable closed, final Campaign campaign) {
+    this.saveSelected = saveSelected;
+    this.closed = closed;
+    this.campaign = campaign;
+
+    deallocateRenderables(0xff);
+
+    this.addControl(new Background());
+
+    // Bottom line
+    this.addControl(Glyph.glyph(78)).setPos(26, 155);
+    this.addControl(Glyph.glyph(79)).setPos(192, 155);
+
+    this.saveList = this.addControl(new BigList<>(savedGame -> {
+      if(!savedGame.isDone()) {
+        return new I18nText("lod_core.ui.load_game.loading");
+      }
+
+      return new RawText(Async.resultNow(savedGame).saveName);
+    }));
+
+    this.saveList.setPos(16, 16);
+    this.saveList.setSize(360, 144);
+    this.saveList.onHighlight(this::onHighlight);
+    this.saveList.onSelection(save -> {
+      if(save.isDone()) {
+        this.onSelection(Async.resultNow(save));
+      } else {
+        playMenuSound(40);
+      }
+    });
+    this.setFocus(this.saveList);
+
+    for(final CompletableFuture<SavedGame> save : saves) {
+      this.saveList.addEntry(save);
+    }
+
+    this.addHotkey(new I18nText("lod_core.ui.load_game.delete"), INPUT_ACTION_MENU_DELETE, this::menuDelete);
+    this.addHotkey(new I18nText("lod_core.ui.load_game.back"), INPUT_ACTION_MENU_BACK, this::menuEscape);
+  }
+
+  private void onHighlight(final CompletableFuture<SavedGame> save) {
+    synchronized(this.saveList) {
+      if(this.saveCard != null) {
+        this.removeControl(this.saveCard);
+      }
+
+      if(save.isDone()) {
+        this.saveCard = this.addControl(Async.resultNow(save).createSaveCard());
+        this.saveCard.alwaysReceiveInput();
+      } else {
+        this.saveCard = this.addControl(new BlankSaveCard());
+
+        save.thenAcceptAsync(f -> {
+          synchronized(this.saveList) {
+            if(this.saveList.getSelected() == save) {
+              this.updateSave = true;
+            }
+          }
+        });
+      }
+
+      this.saveCard.setPos(16, 160);
+    }
+  }
+
+  private void onSelection(final SavedGame save) {
+    if(this.closing) {
+      return;
+    }
+
+    if(save.isValid()) {
+      playMenuSound(2);
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.load_game.load_confirm"), MessageBoxType.CONFIRMATION, result -> this.onMessageboxResult(result, save)));
+    } else {
+      playMenuSound(4);
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.load_game.load_fail"), MessageBoxType.ALERT, result -> { }));
+    }
+  }
+
+  private void onMessageboxResult(final MessageBoxResult result, final SavedGame save) {
+    if(result == MessageBoxResult.YES) {
+      this.saveSelected.accept(save);
+    }
+  }
+
+  @Override
+  public void setFocus(@Nullable final Control control) {
+    super.setFocus(this.saveList);
+  }
+
+  @Override
+  protected void render() {
+    renderText("Load Game", 188, 10, UI_TEXT_CENTERED);
+
+    synchronized(this.saveList) {
+      if(this.updateSave) {
+        this.onHighlight(this.saveList.getSelected());
+        this.updateSave = false;
+      }
+    }
+
+    if(this.closing && fullScreenEffect_800bb140.currentColour_28 == 0xff) {
+      this.closed.run();
+    }
+  }
+
+  private void menuDelete() {
+    if(this.closing) {
+      return;
+    }
+
+    playMenuSound(40);
+
+    if(this.saveList.size() == 1) {
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.load_game.cannot_delete_last_save"), MessageBoxType.ALERT, result -> {}));
+      return;
+    }
+
+    if(this.saveList.getSelected() != null && this.saveList.getSelected().isDone()) {
+      menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.load_game.delete_confirm"), MessageBoxType.CONFIRMATION, result -> {
+        if(result == MessageBoxResult.YES) {
+          try {
+            this.campaign.deleteSave(Async.resultNow(this.saveList.getSelected()).fileName);
+            this.saveList.removeEntry(this.saveList.getSelected());
+          } catch(final IOException e) {
+            LOGGER.error("Failed to delete save", e);
+            this.deferAction(() -> menuStack.pushScreen(new MessageBoxScreen(I18n.translate("lod_core.ui.load_game.delete_fail"), MessageBoxType.ALERT, result1 -> {})));
+          }
+        }
+      }));
+    }
+  }
+
+  private void menuEscape() {
+    if(this.closing) {
+      return;
+    }
+
+    startFadeEffect(1, 5);
+    playMenuSound(3);
+    this.closing = true;
+  }
+}

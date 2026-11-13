@@ -1,0 +1,157 @@
+package legend.game.inventory.screens;
+
+import legend.core.lang.I18nText;
+import legend.core.lang.RawText;
+import legend.core.platform.input.AxisInputActivation;
+import legend.core.platform.input.ButtonInputActivation;
+import legend.core.platform.input.InputAction;
+import legend.core.platform.input.InputActivation;
+import legend.core.platform.input.InputBindings;
+import legend.core.platform.input.InputMod;
+import legend.core.platform.input.KeyInputActivation;
+import legend.core.platform.input.ScancodeInputActivation;
+import legend.game.i18n.I18n;
+import legend.game.inventory.screens.controls.Background;
+import legend.game.inventory.screens.controls.Button;
+import legend.game.inventory.screens.controls.Label;
+import legend.game.saves.ConfigCollection;
+import legend.game.types.MessageBoxResult;
+import org.legendofdragoon.modloader.registries.RegistryId;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static legend.core.GameEngine.CONFIG;
+import static legend.core.GameEngine.PLATFORM;
+import static legend.core.GameEngine.REGISTRIES;
+import static legend.game.FullScreenEffects.startFadeEffect;
+import static legend.game.Menus.deallocateRenderables;
+import static legend.game.SItem.menuStack;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.modding.coremod.CoreMod.CONTROLLER_KEYBINDS_CONFIG;
+import static legend.game.sound.Audio.playMenuSound;
+
+public class KeybindsScreen extends VerticalLayoutScreen {
+  private final Runnable unload;
+  private final ConfigCollection config;
+  private final ConfigCollection originalBindings;
+  private final byte[] openingBindings;
+
+  public KeybindsScreen(final ConfigCollection config, final Runnable unload) {
+    deallocateRenderables(0xff);
+    startFadeEffect(2, 10);
+
+    this.config = config;
+    this.unload = unload;
+
+    this.originalBindings = config != CONFIG ? new ConfigCollection(false) : null;
+    if(this.originalBindings != null) {
+      InputBindings.saveBindings(this.originalBindings);
+    }
+
+    InputBindings.initBindings();
+    InputBindings.loadBindings(config);
+
+    this.openingBindings = snapshotBindings();
+    this.addControl(new Background());
+
+    final List<InputAction> actions = new ArrayList<>();
+
+    for(final RegistryId actionId : REGISTRIES.inputActions) {
+      actions.add(REGISTRIES.inputActions.getEntry(actionId).get());
+    }
+
+    actions.sort(Comparator.comparing(action -> I18n.translate(action.getTranslationKey())));
+
+    for(final InputAction action : actions) {
+      if(action.visible) {
+        final Control control;
+
+        if(action.canBeEdited) {
+          final Button button = new Button(new RawText(this.actionToString(action)));
+          button.onPressed(() -> menuStack.pushScreen(new KeybindScreen(action, this::actionToString, (result, activations) -> {
+            if(result == MessageBoxResult.YES) {
+              InputBindings.overwriteBindings(action, activations);
+              button.setText(new RawText(this.actionToString(action)));
+            }
+          })));
+
+          control = button;
+        } else {
+          final Label label = new Label(new RawText(this.actionToString(action)));
+          label.getFontOptions().horizontalAlign(HorizontalAlign.CENTRE);
+          control = label;
+        }
+
+        this.addRow(new I18nText(action.getTranslationKey()), control);
+      }
+    }
+  }
+
+  private static byte[] snapshotBindings() {
+    final ConfigCollection bindings = new ConfigCollection(false);
+    InputBindings.saveBindings(bindings);
+    final var entry = CONTROLLER_KEYBINDS_CONFIG.get();
+    return entry.serializer.apply(bindings.getConfig(entry));
+  }
+
+  private String actionToString(final InputAction action) {
+    return this.actionToString(InputBindings.getActivationsForAction(action));
+  }
+
+  private String actionToString(final List<InputActivation> activations) {
+    final List<String> text = new ArrayList<>();
+
+    activations.sort(Comparator.comparing(activation -> activation.getClass().getSimpleName()));
+
+    for(final InputActivation activation : activations) {
+      if(activation instanceof final KeyInputActivation key) {
+        text.add(this.modsToString(key.mods) + PLATFORM.getKeyName(key.key));
+      } else if(activation instanceof final ScancodeInputActivation scancode) {
+        text.add(this.modsToString(scancode.mods) + PLATFORM.getScancodeName(scancode.key));
+      } else if(activation instanceof final ButtonInputActivation button) {
+        text.add(String.valueOf(button.button.codepoint));
+      } else if(activation instanceof final AxisInputActivation axis) {
+        text.add(String.valueOf(axis.axis.codepoint));
+      }
+    }
+
+    return String.join(", ", text);
+  }
+
+  private String modsToString(final Set<InputMod> mods) {
+    String str = mods.stream().map(mod -> mod.toString().toLowerCase()).collect(Collectors.joining("+"));
+
+    if(!str.isEmpty()) {
+      str += '+';
+    }
+
+    return str;
+  }
+
+  @Override
+  protected InputPropagation inputActionPressed(final InputAction action, final boolean repeat) {
+    if(super.inputActionPressed(action, repeat) == InputPropagation.HANDLED) {
+      return InputPropagation.HANDLED;
+    }
+
+    if(action == INPUT_ACTION_MENU_BACK.get()) {
+      playMenuSound(3);
+      if(!Arrays.equals(this.openingBindings, snapshotBindings())) {
+        InputBindings.saveBindings(this.config);
+      }
+      if(this.originalBindings != null) {
+        InputBindings.initBindings();
+        InputBindings.loadBindings(this.originalBindings);
+      }
+      this.unload.run();
+      return InputPropagation.HANDLED;
+    }
+
+    return InputPropagation.PROPAGATE;
+  }
+}

@@ -1,0 +1,71 @@
+package legend.lodmod.items;
+
+import legend.game.combat.bent.BattleEntity27c;
+import legend.game.i18n.I18n;
+import legend.game.inventory.ItemIcon;
+import legend.game.inventory.ItemStack;
+import legend.game.inventory.UseItemResponse;
+import legend.game.scripting.ScriptState;
+import legend.game.submap.SMap;
+import legend.game.wmap.WMap;
+
+import static legend.core.GameEngine.CONFIG;
+import static legend.game.EngineStates.currentEngineState_8004dd04;
+import static legend.lodmod.LodConfig.ITEM_STACK_SIZE;
+
+public class CharmPotionItem extends BattleItem {
+  public CharmPotionItem() {
+    super(ItemIcon.CHARM, 2);
+  }
+
+  @Override
+  public int getMaxStackSize(final ItemStack stack) {
+    return CONFIG.getConfig(ITEM_STACK_SIZE.get());
+  }
+
+  @Override
+  public boolean canBeUsed(final ItemStack stack, final UsageLocation location) {
+    return true;
+  }
+
+  @Override
+  public boolean canBeUsedNow(final ItemStack stack, final UsageLocation location) {
+    float currentEncounterAccumulation = 0.0f;
+    if(currentEngineState_8004dd04 instanceof final WMap wmap) {
+      currentEncounterAccumulation = wmap.encounterAccumulator_800c6ae8;
+    } else if(currentEngineState_8004dd04 instanceof final SMap smap && smap.submap.hasEncounters()) {
+      currentEncounterAccumulation = smap.encounterAccumulator_800c6ae8;
+    }
+
+    return currentEncounterAccumulation != 0.0f;
+  }
+
+  @Override
+  public boolean canTarget(final ItemStack stack, final TargetType type) {
+    return type == TargetType.ALLIES;
+  }
+
+  @Override
+  public void useInMenu(final ItemStack stack, final UseItemResponse response, final int charId) {
+    if(currentEngineState_8004dd04 instanceof final WMap wmap) {
+      //LAB_80022e40
+      wmap.encounterAccumulator_800c6ae8 = 0;
+    } else if(currentEngineState_8004dd04 instanceof final SMap smap && smap.submap.hasEncounters()) {
+      smap.encounterAccumulator_800c6ae8 = 0;
+    }
+
+    response.success(I18n.translate(this.getTranslationKey("use")));
+  }
+
+  @Override
+  protected int getUseItemScriptEntrypoint() {
+    return 34;
+  }
+
+  @Override
+  protected void useItemScriptLoaded(final ScriptState<BattleEntity27c> user, final int targetBentIndex) {
+    user.setStor(8, 0xffffff); // Colour
+    user.setStor(28, targetBentIndex);
+    user.setStor(30, user.index);
+  }
+}

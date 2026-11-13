@@ -1,0 +1,303 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+import org.gradle.internal.os.OperatingSystem
+
+plugins {
+  id 'java'
+  id 'org.openjfx.javafxplugin' version '0.1.0'
+  id 'java-library'
+  id 'maven-publish'
+}
+
+project.ext.hash = System.getenv("GITHUB_SHA")
+
+if(project.ext.hash == null) {
+  project.ext.hash = 'snapshot'
+}
+
+group = 'legend'
+version = project.ext.hash
+
+java {
+  sourceCompatibility = targetCompatibility = JavaVersion.VERSION_25
+}
+
+compileJava.options.encoding = 'UTF-8'
+
+project.ext.lwjglVersion = "3.4.3"
+project.ext.jomlVersion = "1.10.8"
+
+final def operatingSystem = hasProperty("os") ? OperatingSystem.forName(os) : OperatingSystem.current()
+final def architecture = hasProperty("arch") ? arch : System.getProperty("os.arch")
+final def isArm = architecture.startsWith("arm") || architecture.startsWith("aarch64")
+final def isSteamDeck = hasProperty("steamdeck") && "true" == steamdeck
+
+switch(operatingSystem) {
+  case OperatingSystem.LINUX:
+    project.ext.lwjglNatives = "natives-linux"
+    project.ext.ffmpegOs = "linux"
+    break
+
+  case OperatingSystem.MAC_OS:
+    project.ext.lwjglNatives = "natives-macos"
+    project.ext.ffmpegOs = "macosx"
+    break
+
+  case OperatingSystem.WINDOWS:
+    project.ext.lwjglNatives = "natives-windows"
+    project.ext.ffmpegOs = "windows"
+    break
+}
+
+if(isArm) {
+  project.ext.lwjglNatives += "-arm64"
+  project.ext.ffmpegArch = "arm64"
+} else {
+  project.ext.ffmpegArch = "x86_64"
+}
+
+println "Building for " + operatingSystem.familyName + " " + architecture
+
+repositories {
+  mavenCentral()
+  mavenLocal()
+  maven { url = "https://central.sonatype.com/repository/maven-snapshots/" }
+  maven { url = "https://jitpack.io" }
+}
+
+dependencies {
+  api 'org.legendofdragoon:mod-loader:4.3.5'
+  api 'org.legendofdragoon:script-recompiler:0.7.11'
+  api 'org.legendofdragoon:mogul-dabas:0.0.1'
+
+  api 'org.apache.logging.log4j:log4j-api:2.26.1'
+  api 'org.apache.logging.log4j:log4j-core:2.26.1'
+  api 'org.fusesource.jansi:jansi:2.4.3'
+
+  api platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+
+  api "org.lwjgl:lwjgl"
+  api "org.lwjgl:lwjgl-mimalloc" // high performance memory allocator
+  api "org.lwjgl:lwjgl-sdl"
+  api "org.lwjgl:lwjgl-opengl"
+  api "org.lwjgl:lwjgl-opengles"
+  api "org.lwjgl:lwjgl-openal"
+  api "org.lwjgl:lwjgl-opus"
+  api "org.lwjgl:lwjgl-stb"
+  api "org.lwjgl:lwjgl-assimp"
+  api "org.lwjgl:lwjgl-shaderc"
+  api "org.lwjgl:lwjgl-spvc"
+  runtimeOnly "org.lwjgl:lwjgl::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-mimalloc::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-sdl::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-opengl::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-opengles::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-openal::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-opus::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-stb::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-assimp::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-shaderc::$lwjglNatives"
+  runtimeOnly "org.lwjgl:lwjgl-spvc::$lwjglNatives"
+  api "org.joml:joml:${jomlVersion}"
+
+  implementation 'org.json:json:20250107'
+  api "com.google.code.gson:gson:2.13.2"
+
+  implementation 'com.opencsv:opencsv:5.9'
+  implementation 'io.github.java-diff-utils:java-diff-utils:4.15'
+  implementation 'commons-io:commons-io:2.18.0'
+
+  api 'com.github.slugify:slugify:3.0.7'
+
+  api 'it.unimi.dsi:fastutil:8.5.15'
+
+  implementation 'com.google.code.findbugs:jsr305:3.0.2'
+
+  implementation 'net.java.dev.jna:jna:5.16.0'
+
+  implementation 'com.github.JnCrMx:discord-game-sdk4j:v1.0.0'
+
+  // Video decoding for the intro
+  implementation 'org.bytedeco:javacv:1.5.13'
+  implementation "org.bytedeco:ffmpeg:8.0-1.5.13:${ffmpegOs}-${ffmpegArch}"
+
+  testImplementation(platform("org.junit:junit-bom:6.0.0"))
+  testImplementation("org.junit.jupiter:junit-jupiter")
+  testImplementation("org.junit.platform:junit-platform-launcher")
+}
+
+javafx {
+  version = "21.0.1"
+  modules = ['javafx.controls', 'javafx.fxml']
+}
+
+if(hasProperty("os")) {
+  javafx.platform = os + (!operatingSystem.windows && isArm ? "-aarch64" : "")
+}
+
+jar {
+  manifest {
+    attributes(
+      'Main-Class': 'legend.game.Main'
+    )
+  }
+}
+
+tasks.register('updaterJar', Jar) {
+  archiveBaseName = 'updater'
+  archiveVersion = ''
+  archiveClassifier = ''
+
+  manifest {
+    attributes(
+      'Main-Class': 'legend.core.UpdaterMain'
+    )
+  }
+
+  from(sourceSets.main.output) {
+    include 'legend/core/Async.class'
+    include 'legend/core/UpdaterMain.class'
+    include 'legend/core/UpdaterMain$*.class'
+    include 'legend/core/UpdaterApplication.class'
+    include 'legend/core/UpdaterApplication$*.class'
+    include 'legend/core/UpdaterController.class'
+  }
+
+  from(sourceSets.main.output.resourcesDir) {
+    include 'legend/core/updater.fxml'
+  }
+
+  // bundle javafx
+  from {
+    configurations.runtimeClasspath.findAll { it.name.contains('javafx') || it.name.contains('log4j') }.collect {
+      it.isDirectory() ? it : zipTree(it)
+    }
+  }
+
+  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+  finalizedBy tasks.named('copyUpdaterConfig')
+}
+
+tasks.register('copyUpdaterConfig', Copy) {
+  dependsOn tasks.named('updaterJar')
+
+  from('log4j2-updater.xml')
+
+  into tasks.named('updaterJar').get().destinationDirectory
+}
+
+tasks.register('sourceJar', Jar) {
+  from sourceSets.main.allJava
+  archiveClassifier = "sources"
+}
+
+tasks.register('clearOutput', Delete) {
+  delete layout.buildDirectory.dir("libs/libs")
+  delete layout.buildDirectory.file("libs/**")
+}
+
+tasks.register('copyLibs', Copy) {
+  from configurations.compileClasspath + configurations.runtimeClasspath
+  into layout.buildDirectory.dir("libs/libs")
+}
+
+tasks.register('copySupportFiles', Copy) {
+  into layout.buildDirectory.dir("libs")
+
+  into("gfx") {
+    from 'gfx'
+  }
+
+  into("patches") {
+    from 'patches'
+  }
+
+  into("lang") {
+    from 'lang'
+  }
+
+  into(".") {
+    switch(operatingSystem) {
+      case OperatingSystem.LINUX:
+        final var archives = configurations.compileClasspath + configurations.runtimeClasspath
+        final var libs = "libs/" + archives*.name.join(":libs/")
+
+        from(isSteamDeck ? 'launch-steamdeck' : 'launch-linux') {
+          filter(ReplaceTokens, tokens: [version: project.ext.hash])
+          filter(ReplaceTokens, tokens: [false: "true"])
+          filter(ReplaceTokens, tokens: [libs: libs])
+          rename("-\\w+", "")
+        }
+        from('download-java') {
+          filter(ReplaceTokens, tokens: [os: 'linux', arch: isArm ? "aarch64" : "x64"])
+        }
+        from 'launch.conf'
+        break
+
+      case OperatingSystem.MAC_OS:
+        final var archives = configurations.compileClasspath + configurations.runtimeClasspath
+        final var libs = "libs/" + archives*.name.join(":libs/")
+
+        from('launch-macos') {
+          filter(ReplaceTokens, tokens: [version: project.ext.hash])
+          filter(ReplaceTokens, tokens: [false: "true"])
+          filter(ReplaceTokens, tokens: [libs: libs])
+          rename("-macos", "")
+        }
+        from('download-java') {
+          filter(ReplaceTokens, tokens: [os: 'macosx', arch: isArm ? "aarch64" : "x64"])
+        }
+        from 'launch.conf'
+        break
+
+      case OperatingSystem.WINDOWS:
+        final var archives = configurations.compileClasspath + configurations.runtimeClasspath
+        final var libs = "libs/" + archives*.name.join(";libs/")
+
+        from('launch.bat') {
+          filter(ReplaceTokens, tokens: [version: project.ext.hash])
+          filter(ReplaceTokens, tokens: [false: "true"])
+          filter(ReplaceTokens, tokens: [libs: libs])
+        }
+        from 'gpu-optional-setup.bat'
+        break
+    }
+
+    from 'log4j2.xml'
+    from 'gamecontrollerdb.txt'
+    from 'README.md'
+    from 'LICENSE'
+    from 'credits.txt'
+  }
+}
+
+jar.dependsOn(clearOutput, copyLibs, copySupportFiles, updaterJar, copyUpdaterConfig)
+
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      artifactId = 'lod'
+      from components.java
+      pom {
+        name = 'LoD Engine'
+      }
+
+      artifact sourceJar
+    }
+  }
+}
+
+test {
+  useJUnitPlatform()
+  // Don't automatically run tests in build process
+  exclude '**/*'
+}
+
+sourceSets {
+  main {
+    java {
+      srcDirs = ["src/main/java"]
+      exclude ".gradle", "build", "files"
+    }
+  }
+}

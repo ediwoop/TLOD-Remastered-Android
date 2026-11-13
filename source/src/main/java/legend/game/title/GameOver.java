@@ -1,0 +1,162 @@
+package legend.game.title;
+
+import de.jcm.discordgamesdk.activity.Activity;
+import legend.core.gpu.Rect4i;
+import legend.core.gte.MV;
+import legend.core.memory.Method;
+import legend.core.renderer.McqBuilder;
+import legend.core.renderer.Obj;
+import legend.core.renderer.QueuedModelStandard;
+import legend.core.tags.Tag;
+import legend.game.EngineState;
+import legend.game.modding.coremod.CoreEngineStateTypes;
+import legend.game.types.GameState52c;
+import legend.game.types.GsRVIEW2;
+import legend.game.types.McqHeader;
+import legend.game.unpacker.FileData;
+import legend.game.unpacker.Loader;
+import legend.lodmod.LodEngineStateTypes;
+
+import static legend.core.GameEngine.GPU;
+import static legend.core.GameEngine.PLATFORM;
+import static legend.core.GameEngine.RENDERER;
+import static legend.game.DrgnFiles.loadDrgnFile;
+import static legend.game.EngineStates.engineStateOnceLoaded_8004dd24;
+import static legend.game.FullScreenEffects.fullScreenEffect_800bb140;
+import static legend.game.FullScreenEffects.startFadeEffect;
+import static legend.game.Graphics.resizeDisplay;
+import static legend.game.Graphics.vsyncMode_8007a3b8;
+import static legend.game.Menus.deallocateRenderables;
+import static legend.game.Scus94491BpeSegment.resetSubmapToNewGame;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_BACK;
+import static legend.game.modding.coremod.CoreMod.INPUT_ACTION_MENU_CONFIRM;
+import static legend.game.sound.Audio.playMenuSound;
+
+public class GameOver extends EngineState<GameOver> {
+  /** NOTE: same address as previous var */
+  private McqHeader gameOverMcq_800bdc3c;
+
+  private int loadingStage;
+
+  private Obj background;
+  private final MV transforms = new MV();
+
+  public GameOver() {
+    super(LodEngineStateTypes.GAME_OVER.get());
+  }
+
+  @Override
+  public Tag writeSaveData(final GameState52c gameState) {
+    return null;
+  }
+
+  @Override
+  public void readSaveData(final GameState52c gameState, final Tag tag) {
+
+  }
+
+  @Override
+  public boolean advancesTime() {
+    return false;
+  }
+
+  @Override
+  public RenderMode getRenderMode() {
+    return RenderMode.LEGACY;
+  }
+
+  @Method(0x800c7558L)
+  private void gameOverLoaded(final FileData data) {
+    final McqHeader mcq = new McqHeader(data);
+
+    final Rect4i rect = new Rect4i(640, 0, mcq.vramWidth_08, mcq.vramHeight_0a);
+    this.gameOverMcq_800bdc3c = mcq;
+    GPU.uploadData15(rect, mcq.imageData);
+    this.loadingStage = 3;
+  }
+
+  @Method(0x800c75b4L)
+  private void renderGameOver() {
+    if(this.background == null) {
+      this.background = new McqBuilder("Game over", this.gameOverMcq_800bdc3c)
+        .vramOffset(640, 0)
+        .build();
+    }
+
+    this.transforms.transfer.set(GPU.getOffsetX() - 320.0f, GPU.getOffsetY() - 120.0f, 144.0f);
+    RENDERER.queueOrthoModel(this.background, this.transforms, QueuedModelStandard.class);
+  }
+
+  @Override
+  @Method(0x800c75fcL)
+  public void tick() {
+    super.tick();
+
+    switch(this.loadingStage) {
+      case 0 -> {
+        if(Loader.getLoadingFileCount() == 0) {
+          resetSubmapToNewGame();
+          resizeDisplay(640, 240);
+          this.loadingStage = 1;
+        }
+      }
+
+      case 1 -> {
+        this.loadingStage = 2;
+        loadDrgnFile(0, 6667).thenAccept(this::gameOverLoaded);
+      }
+
+      case 3 -> {
+        deallocateRenderables(0xff);
+        startFadeEffect(2, 10);
+        this.loadingStage = 4;
+      }
+
+      // Game Over Screen
+      case 4 -> {
+        if(PLATFORM.isActionPressed(INPUT_ACTION_MENU_CONFIRM.get()) || PLATFORM.isActionPressed(INPUT_ACTION_MENU_BACK.get())) {
+          playMenuSound(2);
+          this.loadingStage = 5;
+          startFadeEffect(1, 10);
+        }
+
+        this.renderGameOver();
+      }
+
+      case 5 -> {
+        if(fullScreenEffect_800bb140.currentColour_28 >= 0xff) {
+          this.loadingStage = 6;
+        }
+
+        //LAB_800c7740
+        this.renderGameOver();
+      }
+
+      case 6 -> {
+        deallocateRenderables(0xff);
+
+        if(this.background != null) {
+          this.background.delete();
+          this.background = null;
+        }
+
+        this.gameOverMcq_800bdc3c = null;
+        engineStateOnceLoaded_8004dd24 = CoreEngineStateTypes.TITLE.get();
+        vsyncMode_8007a3b8 = 2;
+      }
+    }
+
+    //LAB_800c7788
+  }
+
+  @Override
+  public void updateDiscordRichPresence(final GameState52c gameState, final Activity activity) {
+    activity.setDetails("Game Over");
+    activity.setState(null);
+  }
+
+  @Override
+  public GsRVIEW2 getCamera() {
+    return null;
+  }
+}

@@ -1,0 +1,64 @@
+package legend.lodmod.items;
+
+import legend.game.characters.Element;
+import legend.game.combat.bent.BattleEntity27c;
+import legend.game.inventory.ItemIcon;
+import legend.game.inventory.ItemStack;
+import legend.game.scripting.ScriptState;
+
+import static legend.core.GameEngine.CONFIG;
+import static legend.lodmod.LodConfig.ITEM_STACK_SIZE;
+
+public class AttackItem extends BattleItem {
+  private final boolean targetAll;
+  private final Element element;
+  private final int damageMultiplier;
+
+  public AttackItem(final ItemIcon icon, final int price, final boolean targetAll, final Element element, final int damageMultiplier) {
+    super(icon, price);
+    this.targetAll = targetAll;
+    this.element = element;
+    this.damageMultiplier = damageMultiplier;
+  }
+
+  @Override
+  public int getMaxStackSize(final ItemStack stack) {
+    return CONFIG.getConfig(ITEM_STACK_SIZE.get());
+  }
+
+  @Override
+  public boolean canBeUsed(final ItemStack stack, final UsageLocation location) {
+    return location == UsageLocation.BATTLE;
+  }
+
+  @Override
+  public boolean canTarget(final ItemStack stack, final TargetType type) {
+    return type == TargetType.ENEMIES || type == TargetType.ALL && this.targetAll;
+  }
+
+  @Override
+  public Element getAttackElement(final ItemStack stack) {
+    return this.element;
+  }
+
+  @Override
+  public int getAttackDamageMultiplier(final ItemStack stack, final BattleEntity27c user, final BattleEntity27c target) {
+    return this.damageMultiplier;
+  }
+
+  @Override
+  public int getSpecialEffect(final ItemStack stack, final BattleEntity27c user, final BattleEntity27c target) {
+    return -1;
+  }
+
+  @Override
+  protected int getUseItemScriptEntrypoint() {
+    return 33;
+  }
+
+  @Override
+  protected void useItemScriptLoaded(final ScriptState<BattleEntity27c> user, final int targetBentIndex) {
+    user.setStor(28, targetBentIndex);
+    user.setStor(30, user.index);
+  }
+}

@@ -1,0 +1,596 @@
+package legend.game.debugger;
+
+import javafx.fxml.FXML;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.TextField;
+import javafx.stage.Stage;
+import javafx.util.StringConverter;
+import legend.game.characters.CharacterTemplate;
+import legend.game.inventory.Equipment;
+import legend.game.inventory.Good;
+import legend.game.inventory.GoodsSource;
+import legend.game.inventory.Item;
+import legend.game.inventory.ItemStack;
+import legend.game.characters.CharacterData2c;
+import legend.game.types.Flags;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Comparator;
+
+import static legend.core.GameEngine.REGISTRIES;
+import static legend.game.Scus94491BpeSegment_800b.gameState_800babc8;
+
+public class GameStateEditorController {
+
+  private static final Logger LOGGER = LogManager.getFormatterLogger(GameStateEditorController.class);
+
+  @FXML
+  public ComboBox<Integer> getScriptData;
+  @FXML
+  public TextField textScriptData;
+  @FXML
+  public ComboBox<Integer> getParty;
+  @FXML
+  public TextField textParty;
+  @FXML
+  public TextField textGold;
+  @FXML
+  public TextField textChapter;
+  @FXML
+  public TextField textStardust;
+  @FXML
+  public TextField textTimestamp;
+  @FXML
+  public TextField textSubmapScene;
+  @FXML
+  public TextField textSubmapCut;
+  @FXML
+  public TextField textScriptEngine1;
+  @FXML
+  public TextField textScriptEngine2;
+  @FXML
+  public TextField textScriptEngine3;
+  @FXML
+  public ComboBox<Integer> getScriptFlags1;
+  @FXML
+  public TextField textScriptFlags1;
+  @FXML
+  public ComboBox<Integer> getScriptFlags2;
+  @FXML
+  public TextField textScriptFlags2;
+  @FXML
+  public ComboBox<Integer> getData2;
+  @FXML
+  public TextField textData2;
+  @FXML
+  public ComboBox<Integer> getData3;
+  @FXML
+  public TextField textData3;
+  @FXML
+  public ComboBox<Good> goodsList;
+  @FXML
+  public ComboBox<Integer> getData4;
+  @FXML
+  public TextField textData4;
+  @FXML
+  public ComboBox<Integer> getChestFlags;
+  @FXML
+  public TextField textChestFlags;
+  @FXML
+  public ComboBox<Equipment> equipmentList;
+  @FXML
+  public ComboBox<Item> itemList;
+  @FXML
+  public ComboBox<CharacterData2c> getCharacter;
+  @FXML
+  public TextField textPathIndex;
+  @FXML
+  public TextField textDotIndex;
+  @FXML
+  public TextField textDotOffset;
+  @FXML
+  public TextField textFacing;
+  @FXML
+  public TextField textAreaIndex;
+
+  public void initialize() {
+    for(int i = 0; i < 0x20; i++) {
+      this.getScriptData.getItems().add(i);
+    }
+    this.getScriptData.getSelectionModel().select(0);
+    this.getScriptData();
+
+    this.initParty();
+
+    this.textGold.setText(String.valueOf(gameState_800babc8.gold_94));
+    this.textChapter.setText(String.valueOf(gameState_800babc8.chapterIndex_98));
+    this.textStardust.setText(String.valueOf(gameState_800babc8.stardust_9c));
+    this.textTimestamp.setText(String.valueOf(gameState_800babc8.timestamp_a0));
+    this.textSubmapScene.setText(String.valueOf(gameState_800babc8.submapScene_a4));
+    this.textSubmapCut.setText(String.valueOf(gameState_800babc8.submapCut_a8));
+    this.textScriptEngine1.setText(String.format("%#x", gameState_800babc8._b0));
+    this.textScriptEngine2.setText(String.format("%#x", gameState_800babc8.battleCount_b4));
+    this.textScriptEngine3.setText(String.format("%#x", gameState_800babc8.turnCount_b8));
+
+    for(int i = 0; i < 0x20; i++) {
+      this.getScriptFlags1.getItems().add(i);
+    }
+    this.getScriptFlags1.getSelectionModel().select(0);
+    this.getScriptFlags1();
+
+    for(int i = 0; i < 8; i++) {
+      this.getScriptFlags2.getItems().add(i);
+    }
+    this.getScriptFlags2.getSelectionModel().select(0);
+    this.getScriptFlags2();
+
+    for(int i = 0; i < 8; i++) {
+      this.getData2.getItems().add(i);
+    }
+    this.getData2.getSelectionModel().select(0);
+    this.getData2();
+
+    for(int i = 0; i < 8; i++) {
+      this.getData3.getItems().add(i);
+    }
+    this.getData3.getSelectionModel().select(0);
+    this.getData3();
+
+    this.goodsList.setConverter(new RegistryEntryConverter<>());
+
+    for(final Good good : gameState_800babc8.goods_19c) {
+      this.goodsList.getItems().add(good);
+    }
+
+    this.goodsList.getItems().sort(Comparator.comparing(e -> e.getRegistryId().toString()));
+
+    if(!this.goodsList.getItems().isEmpty()) {
+      this.goodsList.getSelectionModel().select(0);
+    }
+
+    for(int i = 0; i < 8; i++) {
+      this.getData4.getItems().add(i);
+    }
+    this.getData4.getSelectionModel().select(0);
+    this.getData4();
+
+    for(int i = 0; i < 8; i++) {
+      this.getChestFlags.getItems().add(i);
+    }
+    this.getChestFlags.getSelectionModel().select(0);
+    this.getChestFlags();
+
+    this.equipmentList.setConverter(new RegistryEntryConverter<>());
+
+    for(final Equipment equipment : gameState_800babc8.equipment_1e8) {
+      this.equipmentList.getItems().add(equipment);
+    }
+
+    if(!this.equipmentList.getItems().isEmpty()) {
+      this.equipmentList.getSelectionModel().select(0);
+    }
+
+    this.itemList.setConverter(new RegistryEntryConverter<>());
+
+    for(final ItemStack item : gameState_800babc8.items_2e9) {
+      this.itemList.getItems().add(item.getItem());
+    }
+
+    if(!this.itemList.getItems().isEmpty()) {
+      this.itemList.getSelectionModel().select(0);
+    }
+
+    this.getCharacter.setConverter(new CharacterConverter());
+    for(final CharacterData2c character : gameState_800babc8.charData_32c) {
+      this.getCharacter.getItems().add(character);
+    }
+    this.getCharacter.getSelectionModel().select(0);
+
+    this.textPathIndex.setText(String.format("%#x", gameState_800babc8.pathIndex_4d8));
+    this.textDotIndex.setText(String.format("%#x", gameState_800babc8.dotIndex_4da));
+    this.textDotOffset.setText(String.valueOf(gameState_800babc8.dotOffset_4dc));
+    this.textFacing.setText(String.valueOf(gameState_800babc8.facing_4dd));
+    this.textAreaIndex.setText(String.format("%#x", gameState_800babc8.directionalPathIndex_4de));
+  }
+
+  private int parseHexOrDec(final String inputText, final int oldValue) {
+    int newValue;
+    try {
+      newValue = inputText.toUpperCase().trim().startsWith("0X") ? (int)Long.parseLong(inputText.toUpperCase().trim().substring(2), 16) : Integer.parseInt(inputText);
+    } catch(final NumberFormatException e) {
+      newValue = oldValue;
+      LOGGER.warn("Bad value entered: %s. Restoring previous value: %d", inputText, newValue);
+    }
+
+    return newValue;
+  }
+
+  private void parseHexOrDec(final String inputText, final int index, final Flags gameStateData) {
+    int newValue;
+    try {
+      newValue = inputText.toUpperCase().trim().startsWith("0X") ? (int)Long.parseLong(inputText.toUpperCase().trim().substring(2), 16) : Integer.parseInt(inputText);
+    } catch(final NumberFormatException e) {
+      newValue = gameStateData.getRaw(index);
+      LOGGER.warn("Bad value entered: %s. Restoring previous value: %d", inputText, newValue);
+    }
+
+    gameStateData.setRaw(index, newValue);
+  }
+
+  @FXML
+  public void getScriptData() {
+    this.textScriptData.setText(String.format("%#x", gameState_800babc8.scriptData_08[this.getScriptData.getSelectionModel().getSelectedIndex()]));
+  }
+
+  @FXML
+  public void setScriptData() {
+    gameState_800babc8.scriptData_08[this.getScriptData.getSelectionModel().getSelectedIndex()] = this.parseHexOrDec(this.textScriptData.getText(), gameState_800babc8.scriptData_08[this.getScriptData.getSelectionModel().getSelectedIndex()]);
+  }
+
+  private void initParty() {
+    this.getParty.getItems().clear();
+
+    for(int i = 0; i < gameState_800babc8.charIds_88.size(); i++) {
+      this.getParty.getItems().add(i);
+    }
+
+    this.getParty.getSelectionModel().select(0);
+    this.getParty();
+  }
+
+  @FXML
+  public void getParty() {
+    if(this.getParty.getSelectionModel().getSelectedIndex() == -1) {
+      this.textParty.setText("");
+      return;
+    }
+
+    this.textParty.setText(String.valueOf(gameState_800babc8.charIds_88.getInt(this.getParty.getSelectionModel().getSelectedIndex())));
+  }
+
+  @FXML
+  public void setParty() {
+    final int charSlot = this.getParty.getSelectionModel().getSelectedIndex();
+    final int charId = Integer.parseInt(this.textParty.getText());
+    gameState_800babc8.charIds_88.set(charSlot, charId);
+  }
+
+  @FXML
+  public void addParty() {
+    gameState_800babc8.charIds_88.add(0);
+    this.initParty();
+    this.getParty.getSelectionModel().select(this.getParty.getItems().size() - 1);
+    this.getParty();
+  }
+
+  @FXML
+  public void removeParty() {
+    final int charSlot = this.getParty.getSelectionModel().getSelectedIndex();
+    gameState_800babc8.charIds_88.removeInt(charSlot);
+    this.initParty();
+  }
+
+  @FXML
+  public void getGold() {
+    this.textGold.setText(String.valueOf(gameState_800babc8.gold_94));
+  }
+
+  @FXML
+  public void setGold() {
+    gameState_800babc8.gold_94 = Integer.parseInt(this.textGold.getText());
+  }
+
+  @FXML
+  public void getChapter() {
+    this.textChapter.setText(String.valueOf(gameState_800babc8.chapterIndex_98));
+  }
+
+  @FXML
+  public void setChapter() {
+    gameState_800babc8.chapterIndex_98 = Integer.parseInt(this.textChapter.getText());
+  }
+
+  @FXML
+  public void getStardust() {
+    this.textStardust.setText(String.valueOf(gameState_800babc8.stardust_9c));
+  }
+
+  @FXML
+  public void setStardust() {
+    gameState_800babc8.stardust_9c = Integer.parseInt(this.textStardust.getText());
+  }
+
+  @FXML
+  public void getTimestamp() {
+    this.textTimestamp.setText(String.valueOf(gameState_800babc8.timestamp_a0));
+  }
+
+  @FXML
+  public void setTimestamp() {
+    gameState_800babc8.timestamp_a0 = Integer.parseInt(this.textTimestamp.getText());
+  }
+
+  @FXML
+  public void getSubmapScene() {
+    this.textSubmapScene.setText(String.valueOf(gameState_800babc8.submapScene_a4));
+  }
+
+  @FXML
+  public void setSubmapScene() {
+    gameState_800babc8.submapScene_a4 = Integer.parseInt(this.textSubmapScene.getText());
+  }
+
+  @FXML
+  public void getSubmapCut() {
+    this.textSubmapCut.setText(String.valueOf(gameState_800babc8.submapCut_a8));
+  }
+
+  @FXML
+  public void setSubmapCut() {
+    gameState_800babc8.submapCut_a8 = Integer.parseInt(this.textSubmapCut.getText());
+  }
+
+  @FXML
+  public void getScriptEngine1() {
+    this.textScriptEngine1.setText(String.format("%#x", gameState_800babc8._b0));
+  }
+
+  @FXML
+  public void setScriptEngine1() {
+    gameState_800babc8._b0 = this.parseHexOrDec(this.textScriptEngine1.getText(), gameState_800babc8._b0);
+  }
+
+  @FXML
+  public void getScriptEngine2() {
+    this.textScriptEngine2.setText(String.format("%#x", gameState_800babc8.battleCount_b4));
+  }
+
+  @FXML
+  public void setScriptEngine2() {
+    gameState_800babc8.battleCount_b4 = this.parseHexOrDec(this.textScriptEngine2.getText(), gameState_800babc8.battleCount_b4);
+  }
+
+  @FXML
+  public void getScriptEngine3() {
+    this.textScriptEngine3.setText(String.format("%#x", gameState_800babc8.turnCount_b8));
+  }
+
+  @FXML
+  public void setScriptEngine3() {
+    gameState_800babc8.turnCount_b8 = this.parseHexOrDec(this.textScriptEngine3.getText(), gameState_800babc8.turnCount_b8);
+  }
+
+  @FXML
+  public void getScriptFlags1() {
+    this.textScriptFlags1.setText(String.format("%#x", gameState_800babc8.scriptFlags2_bc.getRaw(this.getScriptFlags1.getSelectionModel().getSelectedIndex())));
+  }
+
+  @FXML
+  public void setScriptFlags1() {
+    this.parseHexOrDec(this.textScriptFlags1.getText(), this.getScriptFlags1.getSelectionModel().getSelectedIndex(), gameState_800babc8.scriptFlags2_bc);
+  }
+
+  @FXML
+  public void getScriptFlags2() {
+    this.textScriptFlags2.setText(String.format("%#x", gameState_800babc8.scriptFlags1_13c.getRaw(this.getScriptFlags2.getSelectionModel().getSelectedIndex())));
+  }
+
+  @FXML
+  public void setScriptFlags2() {
+    this.parseHexOrDec(this.textScriptFlags2.getText(), this.getScriptFlags2.getSelectionModel().getSelectedIndex(), gameState_800babc8.scriptFlags1_13c);
+  }
+
+  @FXML
+  public void getData2() {
+    this.textData2.setText(String.format("%#x", gameState_800babc8.wmapFlags_15c.getRaw(this.getData2.getSelectionModel().getSelectedIndex())));
+  }
+
+  @FXML
+  public void setData2() {
+    this.parseHexOrDec(this.textData2.getText(), this.getData2.getSelectionModel().getSelectedIndex(), gameState_800babc8.wmapFlags_15c);
+  }
+
+  @FXML
+  public void getData3() {
+    this.textData3.setText(String.format("%#x", gameState_800babc8.visitedLocations_17c.getRaw(this.getData3.getSelectionModel().getSelectedIndex())));
+  }
+
+  @FXML
+  public void setData3() {
+    this.parseHexOrDec(this.textData3.getText(), this.getData3.getSelectionModel().getSelectedIndex(), gameState_800babc8.visitedLocations_17c);
+  }
+
+  @FXML
+  public void giveGood() throws Exception {
+    final RegistrySelector selector = new RegistrySelector(REGISTRIES.goods, this::goodSelectorOnSelect, this::goodSelectorOnCancel);
+    selector.start(new Stage());
+  }
+
+  private void goodSelectorOnSelect(final Good good) {
+    gameState_800babc8.goods_19c.give(good, GoodsSource.DEBUGGER);
+
+    if(!this.goodsList.getItems().contains(good)) {
+      this.goodsList.getItems().add(good);
+    }
+
+    this.goodsList.getItems().sort(Comparator.comparing(e -> e.getRegistryId().toString()));
+    this.goodsList.getSelectionModel().select(good);
+  }
+
+  private void goodSelectorOnCancel() {
+
+  }
+
+  @FXML
+  public void takeGood() {
+    final Good good = this.goodsList.getValue();
+    gameState_800babc8.goods_19c.take(good);
+    this.goodsList.getItems().remove(good);
+  }
+
+  @FXML
+  public void getData4() {
+    this.textData4.setText(String.format("%#x", gameState_800babc8._1a4[this.getData4.getSelectionModel().getSelectedIndex()]));
+  }
+
+  @FXML
+  public void setData4() {
+    gameState_800babc8._1a4[this.getData4.getSelectionModel().getSelectedIndex()] = this.parseHexOrDec(this.textData4.getText(), gameState_800babc8._1a4[this.getData4.getSelectionModel().getSelectedIndex()]);
+  }
+
+  @FXML
+  public void getChestFlags() {
+    this.textChestFlags.setText(String.format("%#x", gameState_800babc8.chestFlags_1c4[this.getChestFlags.getSelectionModel().getSelectedIndex()]));
+  }
+
+  @FXML
+  public void setChestFlags() {
+    gameState_800babc8.chestFlags_1c4[this.getChestFlags.getSelectionModel().getSelectedIndex()] = this.parseHexOrDec(this.textChestFlags.getText(), gameState_800babc8.chestFlags_1c4[this.getChestFlags.getSelectionModel().getSelectedIndex()]);
+  }
+
+  @FXML
+  public void giveEquipment() throws Exception {
+    final RegistrySelector selector = new RegistrySelector(REGISTRIES.equipment, this::equipmentSelectorOnSelect, this::equipmentSelectorOnCancel);
+    selector.start(new Stage());
+  }
+
+  private void equipmentSelectorOnSelect(final Equipment equipment) {
+    gameState_800babc8.equipment_1e8.add(equipment);
+    this.equipmentList.getItems().add(equipment);
+    this.equipmentList.getSelectionModel().select(this.equipmentList.getItems().size() - 1);
+  }
+
+  private void equipmentSelectorOnCancel() {
+
+  }
+
+  @FXML
+  public void takeEquipment() {
+    final int index = this.equipmentList.getSelectionModel().getSelectedIndex();
+    gameState_800babc8.equipment_1e8.remove(index);
+    this.equipmentList.getItems().remove(index);
+  }
+
+  @FXML
+  public void giveItem() throws Exception {
+    final RegistrySelector selector = new RegistrySelector(REGISTRIES.items, this::itemSelectorOnSelect, this::itemSelectorOnCancel);
+    selector.start(new Stage());
+  }
+
+  private void itemSelectorOnSelect(final Item item) {
+    gameState_800babc8.items_2e9.give(new ItemStack(item), true);
+    this.itemList.getItems().add(item);
+    this.itemList.getSelectionModel().select(this.itemList.getItems().size() - 1);
+  }
+
+  private void itemSelectorOnCancel() {
+
+  }
+
+  @FXML
+  public void takeItem() {
+    final int index = this.itemList.getSelectionModel().getSelectedIndex();
+    gameState_800babc8.items_2e9.takeFromSlot(index, gameState_800babc8.items_2e9.get(index).getSize());
+    this.itemList.getItems().remove(index);
+  }
+
+  @FXML
+  public void editCharacter() throws Exception {
+    final int id = this.getCharacter.getSelectionModel().getSelectedIndex();
+    final CharacterEditor charEditor = new CharacterEditor(gameState_800babc8.charData_32c.get(id));
+    charEditor.start(new Stage());
+  }
+
+  @FXML
+  public void addCharacter() throws Exception {
+    final RegistrySelector selector = new RegistrySelector(REGISTRIES.characterTemplates, this::characterSelectorOnSelect, this::characterSelectorOnCancel);
+    selector.start(new Stage());
+  }
+
+  @FXML
+  public void removeCharacter() {
+    final int index = this.getCharacter.getSelectionModel().getSelectedIndex();
+    gameState_800babc8.charData_32c.remove(index);
+    gameState_800babc8.charIds_88.removeIf(i -> i == index);
+    this.getCharacter.getItems().remove(index);
+  }
+
+  private void characterSelectorOnSelect(final CharacterTemplate template) {
+    final CharacterData2c character = template.make(gameState_800babc8);
+    gameState_800babc8.addCharacter(character);
+    this.getCharacter.getItems().add(character);
+    this.getCharacter.getSelectionModel().select(this.getCharacter.getItems().size() - 1);
+  }
+
+  private void characterSelectorOnCancel() {
+
+  }
+
+  @FXML
+  public void getPathIndex() {
+    this.textPathIndex.setText(String.format("%#x", gameState_800babc8.pathIndex_4d8));
+  }
+
+  @FXML
+  public void setPathIndex() {
+    gameState_800babc8.pathIndex_4d8 = this.parseHexOrDec(this.textPathIndex.getText(), gameState_800babc8.pathIndex_4d8);
+  }
+
+  @FXML
+  public void getDotIndex() {
+    this.textDotIndex.setText(String.format("%#x", gameState_800babc8.dotIndex_4da));
+  }
+
+  @FXML
+  public void setDotIndex() {
+    gameState_800babc8.dotIndex_4da = this.parseHexOrDec(this.textDotIndex.getText(), gameState_800babc8.dotIndex_4da);
+  }
+
+  @FXML
+  public void getDotOffset() {
+    this.textDotOffset.setText(String.valueOf(gameState_800babc8.dotOffset_4dc));
+  }
+
+  @FXML
+  public void setDotOffset() {
+    gameState_800babc8.dotOffset_4dc = Float.parseFloat(this.textDotOffset.getText());
+  }
+
+  @FXML
+  public void getFacing() {
+    this.textFacing.setText(String.valueOf(gameState_800babc8.facing_4dd));
+  }
+
+  @FXML
+  public void setFacing() {
+    gameState_800babc8.facing_4dd = Integer.parseInt(this.textFacing.getText());
+  }
+
+  @FXML
+  public void getAreaIndex() {
+    this.textAreaIndex.setText(String.format("%#x", gameState_800babc8.directionalPathIndex_4de));
+  }
+
+  @FXML
+  public void setAreaIndex() {
+    gameState_800babc8.directionalPathIndex_4de = this.parseHexOrDec(this.textAreaIndex.getText(), gameState_800babc8.directionalPathIndex_4de);
+  }
+
+  private static class CharacterConverter extends StringConverter<CharacterData2c> {
+    @Override
+    public String toString(final CharacterData2c t) {
+      if(t == null) {
+        return "";
+      }
+
+      return t.getName().get();
+    }
+
+    @Override
+    public CharacterData2c fromString(final String s) {
+      return null;
+    }
+  }
+
+}
