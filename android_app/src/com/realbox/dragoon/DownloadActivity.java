@@ -103,7 +103,7 @@ public final class DownloadActivity extends Activity {
                     Path archive = temporary.resolve("content.zip");
                     Path stage = temporary.resolve("staging");
                     ContentInstaller.remove(stage);
-                    if (Files.getFileStore(temporary).getUsableSpace() < expanded + (Files.isRegularFile(archive) ? 0 : compressed)) {
+                    if (new android.os.StatFs(temporary.toString()).getAvailableBytes() < expanded + (Files.isRegularFile(archive) ? 0 : compressed)) {
                         throw new IOException("Libera espacio para descargar e instalar el juego.");
                     }
                     ContentInstaller.download(url, archive, compressed, hash, this::showProgress);

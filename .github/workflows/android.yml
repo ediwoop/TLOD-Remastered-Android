@@ -62,7 +62,7 @@ jobs:
           echo "APK verificada: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
           if [[ -z "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
             mkdir -p unsigned-artifacts
-            cp android_app/build/aligned.apk unsigned-artifacts/TLOD-0.30-unsigned.apk
+            cp android_app/build/aligned.apk unsigned-artifacts/TLOD-0.31-unsigned.apk
             echo "TLOD_UNSIGNED_APK=true" >> "$GITHUB_ENV"
             echo "Paquete compilado y pendiente de firma." >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -71,20 +71,20 @@ jobs:
           grep -F "SHA-256 digest: f287593e400ea11b75ba90c6acd816a520d2b9630f9014451c4fe8d2e23a6bcb" "$RUNNER_TEMP/tlod-signing.txt"
           echo "TLOD_PUBLISH_APK=true" >> "$GITHUB_ENV"
           mkdir -p artifacts
-          cp "$apk" artifacts/Legend-of-Dragoon-Remastered-0.30.apk
+          cp "$apk" artifacts/Legend-of-Dragoon-Remastered-0.31.apk
           cd artifacts
-          sha256sum Legend-of-Dragoon-Remastered-0.30.apk > SHA256SUMS
+          sha256sum Legend-of-Dragoon-Remastered-0.31.apk > SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         if: env.TLOD_PUBLISH_APK == 'true'
         with:
-          name: TLOD-Android-0.30
+          name: TLOD-Android-0.31
           path: artifacts/
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: env.TLOD_UNSIGNED_APK == 'true'
         with:
-          name: TLOD-Android-0.30-unsigned
+          name: TLOD-Android-0.31-unsigned
           path: unsigned-artifacts/
           if-no-files-found: error
