@@ -13,8 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      DRAGOON_CONTENT_URL: ${{ vars.DRAGOON_CONTENT_URL }}
-      DRAGOON_PACKAGE_APK: ${{ vars.DRAGOON_CONTENT_URL != '' }}
+      DRAGOON_CONTENT_URL: https://github.com/ediwoop/TLOD-Remastered-Android/releases/download/content-0.30/TLOD-0.30-content.zip
       DRAGOON_CONTENT_METADATA: android_app/content-download-0.30.json
 
     steps:
@@ -50,14 +49,9 @@ jobs:
           mkdir -p signing
           umask 077
           trap 'rm -f signing/debug.keystore' EXIT
-          if [[ "$DRAGOON_PACKAGE_APK" == true ]]; then
-            if [[ -z "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
-              echo "::error::Configura DRAGOON_SIGNING_KEY_BASE64 para publicar una APK."
-              exit 1
-            fi
+          if [[ -n "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
             printf '%s' "$DRAGOON_SIGNING_KEY_BASE64" | base64 --decode > signing/debug.keystore
           else
-            export DRAGOON_CONTENT_URL=https://example.invalid/TLOD-0.30-content.zip
             keytool -genkeypair -keystore signing/debug.keystore -storepass android \
               -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 \
               -dname "CN=TLOD CI" -validity 1
@@ -66,17 +60,20 @@ jobs:
           apk=android_app/build/Dragoon-Engine-Internal.apk
           bytes=$(stat -c %s "$apk")
           echo "APK verificada: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$DRAGOON_PACKAGE_APK" != true ]]; then
-            echo "Compilación de prueba. Configura la URL y la firma para entregar una APK." >> "$GITHUB_STEP_SUMMARY"
+          if [[ -z "$DRAGOON_SIGNING_KEY_BASE64" ]]; then
+            echo "Compilación de prueba. Configura la firma fija para entregar una APK." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/tlod-signing.txt"
+          grep -F "SHA-256 digest: f287593e400ea11b75ba90c6acd816a520d2b9630f9014451c4fe8d2e23a6bcb" "$RUNNER_TEMP/tlod-signing.txt"
+          echo "TLOD_PUBLISH_APK=true" >> "$GITHUB_ENV"
           mkdir -p artifacts
           cp "$apk" artifacts/Legend-of-Dragoon-Remastered-0.30.apk
           cd artifacts
           sha256sum Legend-of-Dragoon-Remastered-0.30.apk > SHA256SUMS
 
       - uses: actions/upload-artifact@v4
-        if: env.DRAGOON_PACKAGE_APK == 'true'
+        if: env.TLOD_PUBLISH_APK == 'true'
         with:
           name: TLOD-Android-0.30
           path: artifacts/
